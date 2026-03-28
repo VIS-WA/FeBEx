@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+jobs:
+  ci-pylint:
+    name: Execute Pylint
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Clean working directory
+        if: always()
+        run: |
+          sudo /usr/bin/rm -rf -- ..?* .[!.]* *
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: ${{ startsWith( runner.name, 'GitHub Actions' ) }}
+        uses: actions/setup-python@v5
+
+      - name: Configure Python virtual environment
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          python3 -m pip install --upgrade pylint
+
+      - name: Run pylint
+        run: |
+          source venv/bin/activate
+          pylint --rcfile=.config/.pylintrc --recursive=y .
+
+      - name: Clean working directory
+        if: always()
+        run: |
+          sudo /usr/bin/rm -rf -- ..?* .[!.]* *

@@ -1,0 +1,27 @@
+[
+    {
+        "src_addr": "8.1.2.101",
+        "dst_addr": "8.1.1.101",
+        "protocol": 1,
+        "egress_mac": "f0:00:0d:01:04:01",
+        "egress_port": 3
+    },
+    {
+        "src_addr": "8.1.2.101",
+        "dst_addr": "8.1.1.101",
+        "protocol": 6,
+        "src_port": 2674,
+        "dst_port": 1337,
+        "egress_mac": "f0:00:0d:01:04:01",
+        "egress_port": 3
+    },
+    {
+        "src_addr": "8.1.2.101",
+        "dst_addr": "8.1.1.101",
+        "protocol": 17,
+        "src_port": 2676,
+        "dst_port": 1338,
+        "egress_mac": "f0:00:0d:01:04:01",
+        "egress_port": 3
+    }
+]
