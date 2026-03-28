@@ -53,9 +53,60 @@ IXP2S1_CONTROLLER_PID_FILE = $(IXP2S1_CONTROLLER_TEMP_DIR)/ixp2s1_controller.pid
 	run-stop \
 	run-clean \
 	clean \
-	generate-submission
+	generate-submission \
+	build-febex \
+	build-febex-size \
+	run-febex \
+	run-tests-febex
 
 all:
+
+# ── FeBEx (this project) ───────────────────────────────────────────────
+
+FEBEX_P4_DIR           = $(TASKS_DIR)/febex/p4
+FEBEX_P4_COMPILER_IN   = $(FEBEX_P4_DIR)/febex.p4
+FEBEX_P4_COMPILER_OUT  = febex
+FEBEX_CONTROLLER_SCRIPT = $(TASKS_DIR)/febex/p4rt_controller/controller.py
+FEBEX_CONTROLLER_TEMP_DIR = $(TEMP_P4RT_CONTROLLER_DIR)/s1
+FEBEX_CONTROLLER_LOG   = $(FEBEX_CONTROLLER_TEMP_DIR)/s1_controller-stdout.log
+FEBEX_CONTROLLER_PID   = $(FEBEX_CONTROLLER_TEMP_DIR)/s1_controller.pid
+
+FEBEX_P4_ARGS  = --p4v 16
+FEBEX_P4_ARGS += --p4runtime-files $(BUILD_P4_DIR)/$(FEBEX_P4_COMPILER_OUT).p4info.txtpb
+FEBEX_P4_ARGS += -o $(BUILD_P4_DIR)/$(FEBEX_P4_COMPILER_OUT).json
+
+build-febex:
+	$(MAKE) build-clean
+	$(MAKE) build-init
+	$(P4_COMPILER) $(FEBEX_P4_ARGS) $(FEBEX_P4_COMPILER_IN)
+
+# Recompile with a custom dedup table size: make build-febex-size DEDUP_SIZE=4096
+build-febex-size:
+	$(MAKE) build-clean
+	$(MAKE) build-init
+	$(P4_COMPILER) $(FEBEX_P4_ARGS) -DDEDUP_TABLE_SIZE=$(DEDUP_SIZE) $(FEBEX_P4_COMPILER_IN)
+
+run-febex:
+	$(MAKE) run-clean
+	$(MAKE) build-febex
+	$(MAKE) run-init
+	mkdir -p $(FEBEX_CONTROLLER_TEMP_DIR)
+	$(PYTHON_INTERPRETER) $(FEBEX_CONTROLLER_SCRIPT) \
+		--gateways 2 --tenants 2 --epoch-interval 5 \
+		> $(FEBEX_CONTROLLER_LOG) 2>&1 & echo $$! > $(FEBEX_CONTROLLER_PID)
+	sudo $(PYTHON_INTERPRETER) $(NETWORKS_DIR)/febex/$(CLI_NETWORK_FILE)
+	$(MAKE) run-stop
+
+run-tests-febex:
+	$(MAKE) run-clean
+	$(MAKE) build-febex
+	$(MAKE) run-init
+	sudo $(PYTHON_INTERPRETER) $(TASKS_DIR)/febex/test_febex.py
+	$(MAKE) run-stop
+
+.PHONY: build-febex build-febex-size run-febex run-tests-febex
+
+# ── Original tasks ─────────────────────────────────────────────────────
 
 build-init:
 	mkdir -p $(BUILD_P4_DIR)
