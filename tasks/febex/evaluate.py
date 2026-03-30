@@ -253,29 +253,36 @@ def plot_e2(results):
     save_plot(fig, "E2_correctness")
 
 
+CITY_SIZE_LABELS = {
+    "N50_K5":   "Small\n(N=50, K=5)",
+    "N100_K10": "Medium\n(N=100, K=10)",
+    "N200_K20": "Stress\n(N=200, K=20)",
+    "N500_K50": "Large\n(N=500, K=50)",
+}
+
+
 def plot_e4(results):
     """Grouped bar chart: throughput and savings for N x K combos."""
     if not HAS_MPL or not results:
         return
-    labels = sorted(results.keys())
-    savings = [results[k]["savings"] * 100 for k in labels]
-    throughputs = [results[k]["throughput"] for k in labels]
+    keys = sorted(results.keys())
+    labels = [CITY_SIZE_LABELS.get(k, k) for k in keys]
+    savings = [results[k]["savings"] * 100 for k in keys]
+    throughputs = [results[k]["throughput"] for k in keys]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     ax1.bar(labels, savings, color="steelblue", edgecolor="black")
-    ax1.set_xlabel("Configuration (N, K)")
+    ax1.set_xlabel("City Scale")
     ax1.set_ylabel("Savings (%)")
     ax1.set_title("E4: Backhaul Savings at Scale")
     ax1.grid(True, alpha=0.3, axis="y")
-    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=30, ha="right")
 
     ax2.bar(labels, throughputs, color="darkorange", edgecolor="black")
-    ax2.set_xlabel("Configuration (N, K)")
+    ax2.set_xlabel("City Scale")
     ax2.set_ylabel("Throughput (pps)")
     ax2.set_title("E4: Switch Throughput at Scale")
     ax2.grid(True, alpha=0.3, axis="y")
-    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30, ha="right")
 
     fig.tight_layout()
     save_plot(fig, "E4_scalability")

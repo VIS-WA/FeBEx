@@ -1,0 +1,51 @@
+{
+  "num_edge_devices": 5,
+  "num_hotspots": 3,
+  "num_tenants": 2,
+  "coverage_matrix": [
+    [
+      1,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      1
+    ],
+    [
+      1,
+      0,
+      1
+    ],
+    [
+      1,
+      1,
+      1
+    ],
+    [
+      1,
+      0,
+      0
+    ]
+  ],
+  "device_tenant_map": [
+    0,
+    1,
+    0,
+    1,
+    0
+  ],
+  "device_devaddr": [
+    1373158607,
+    2386565312,
+    53710185,
+    3739951230,
+    590620972
+  ],
+  "stats": {
+    "avg_coverage": 2.0,
+    "min_coverage": 1,
+    "max_coverage": 3
+  }
+}
