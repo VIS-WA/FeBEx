@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /home/labiour/Documents/chaduvu/Networking/FeBEx/results/E2/avg10/dedup_ON/logs/lns*.log)",
+      "Bash(wc -l /home/labiour/Documents/chaduvu/Networking/FeBEx/results/E2/avg10/dedup_ON/logs/lns*.tsv)",
+      "Bash(wc -l /home/labiour/Documents/chaduvu/Networking/FeBEx/results/E1/avg10/dedup_OFF/logs/lns*.tsv)"
+    ]
+  }
+}

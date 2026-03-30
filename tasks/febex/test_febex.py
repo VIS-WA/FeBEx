@@ -294,8 +294,18 @@ def stop_procs(*procs):
                 pass
 
 
+def _cleanup_stale():
+    """Kill any stale BMv2 / controller processes and free ports."""
+    subprocess.run(["mn", "-c"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run("pkill -9 -f simple_switch_grpc 2>/dev/null; true",
+                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run("pkill -9 -f 'controller.py' 2>/dev/null; true",
+                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)   # wait for TCP ports to be released
+
+
 def _run_test(title: str, fn) -> bool:
-    """Wrap a test function: start/stop Mininet bookkeeping + mn -c cleanup."""
+    """Wrap a test function: start/stop Mininet bookkeeping + full cleanup."""
     header(title)
     result = False
     try:
@@ -304,8 +314,7 @@ def _run_test(title: str, fn) -> bool:
         print(f"    {RED}EXCEPTION: {exc}{RESET}")
         import traceback; traceback.print_exc()
     finally:
-        subprocess.run(["mn", "-c"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1)
+        _cleanup_stale()
     return result
 
 
@@ -619,12 +628,7 @@ def main():
     print(f"{'═' * 60}{RESET}\n")
 
     print("  Cleaning up stale processes...", flush=True)
-    subprocess.run(["mn", "-c"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run("pkill -f simple_switch_grpc 2>/dev/null; true",
-                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run("pkill -9 -f 'controller.py' 2>/dev/null; true",
-                   shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2)
+    _cleanup_stale()
 
     tests = [
         ("Test 1: Basic Forwarding (1 gw, 1 lns, no dedup)",         _test_basic_forwarding),

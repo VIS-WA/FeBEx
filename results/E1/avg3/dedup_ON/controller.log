@@ -1,0 +1,25 @@
+2026-03-30 16:37:18,218 INFO:febex.controller:Controller process starting (pid=22269)
+2026-03-30 16:37:18,267 INFO:febex.controller:Connecting to 127.0.0.1:50051 (device_id=1)
+2026-03-30 16:37:18,267 INFO:febex.controller:P4Info: /media/sf_FeBEx/build/p4/febex.p4info.txtpb
+2026-03-30 16:37:18,267 INFO:febex.controller:Binary: /media/sf_FeBEx/build/p4/febex.json
+2026-03-30 16:37:18,269 INFO:finsy:[s1] Switch start (name='s1', address='127.0.0.1:50051', device_id=1, role_name='', initial_election_id=10)
+2026-03-30 16:37:18,272 WARNING:finsy:[s1|Switch._run&] gNMI is not implemented
+2026-03-30 16:37:18,272 INFO:finsy:[s1] Channel up (is_primary=True, role_name='', p4r=1.3.0): 
+2026-03-30 16:37:18,295 INFO:finsy:[s1] Pipeline installed: pipeline='' version='' arch='v1model'
+2026-03-30 16:37:18,295 INFO:finsy:[s1] Channel ready (is_primary=True, role_name=''): pipeline='' version='' arch='v1model'
+2026-03-30 16:37:18,295 INFO:finsy:[s1] [s1] Starting FeBEx initialisation...
+2026-03-30 16:37:18,296 INFO:finsy:[s1] [s1] Tenant 0: DevAddr 0x00000000/1 → port 11  mac 00:00:00:00:02:01
+2026-03-30 16:37:18,297 INFO:finsy:[s1] [s1] Tenant 1: DevAddr 0x80000000/1 → port 12  mac 00:00:00:00:02:02
+2026-03-30 16:37:18,331 INFO:febex.controller:CLI register_write FeBExIngress.dedup_enabled 0 1      → OK
+2026-03-30 16:37:18,366 INFO:febex.controller:CLI register_write FeBExIngress.current_epoch 0 0      → OK
+2026-03-30 16:37:18,366 INFO:finsy:[s1] [s1] Registers: dedup_enabled=1 current_epoch=0
+2026-03-30 16:37:18,367 INFO:finsy:[s1] [s1] Epoch rotation every 5.0s
+2026-03-30 16:37:18,367 INFO:finsy:[s1] [s1] Controller ready
+2026-03-30 16:37:23,408 INFO:febex.controller:CLI register_write FeBExIngress.current_epoch 0 1      → OK
+2026-03-30 16:37:23,408 INFO:finsy:[s1-epoch] Epoch → 1
+2026-03-30 16:37:28,450 INFO:febex.controller:CLI register_write FeBExIngress.current_epoch 0 2      → OK
+2026-03-30 16:37:28,451 INFO:finsy:[s1-epoch] Epoch → 2
+2026-03-30 16:37:33,496 INFO:febex.controller:CLI register_write FeBExIngress.current_epoch 0 3      → OK
+2026-03-30 16:37:33,497 INFO:finsy:[s1-epoch] Epoch → 3
+2026-03-30 16:37:38,409 INFO:finsy:[s1] Channel down (is_primary=True, role_name='')
+2026-03-30 16:37:38,409 INFO:finsy:[s1] Switch stop (name='s1', address='127.0.0.1:50051', device_id=1, role_name='')

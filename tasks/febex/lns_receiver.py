@@ -30,9 +30,7 @@ conf.verb = 0  # suppress scapy verbosity
 # ── FeBExMeta parser (struct-based, no dependency on traffic_gen) ───────
 
 FEBEX_META_SIZE = 12  # bytes
-FEBEX_META_FMT  = "!IIHHBB"  # dev_addr(4) fcnt(4) gw_id(2) flags(1) padding(1)
-                              # Actually: dev_addr 4B, fcnt 4B, gw_id 2B, flags 1B, padding 1B
-# Correct format: >I I H B B = 4+4+2+1+1 = 12 bytes
+# dev_addr(4B) + fcnt(4B) + gw_id(2B) + flags(1B) + padding(1B) = 12B
 FEBEX_META_FMT  = ">IIHBB"
 
 

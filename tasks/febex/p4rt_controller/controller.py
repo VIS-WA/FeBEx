@@ -55,33 +55,41 @@ BUILD_DIRECTORY      = os.path.join(REPOSITORY_DIRECTORY, "build/p4")
 #  Thrift helpers  (simple_switch_CLI — does NOT require finsy extensions)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _thrift(thrift_port: int, cmd: str) -> bool:
+def _thrift(thrift_port: int, cmd: str, retries: int = 3) -> bool:
     """
     Send a single command to simple_switch_CLI via stdin.
-    Returns True on success.
+    Returns True on success.  Retries on transient failures.
     """
-    try:
-        result = subprocess.run(
-            ["simple_switch_CLI", "--thrift-port", str(thrift_port)],
-            input=cmd + "\nexit\n",
-            capture_output=True,
-            text=True,
-            timeout=8,
-        )
-        if result.returncode != 0 or "Error" in result.stdout:
-            _raw_logger.warning("simple_switch_CLI '%s' failed: %s", cmd, result.stdout.strip())
+    for attempt in range(1, retries + 1):
+        try:
+            result = subprocess.run(
+                ["simple_switch_CLI", "--thrift-port", str(thrift_port)],
+                input=cmd + "\nexit\n",
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if result.returncode != 0 or "Error" in result.stdout:
+                _raw_logger.warning("simple_switch_CLI '%s' attempt %d failed: %s",
+                                    cmd, attempt, result.stdout.strip())
+                if attempt < retries:
+                    import time; time.sleep(0.5)
+                    continue
+                return False
+            _raw_logger.info("CLI %-50s → OK", cmd)
+            return True
+        except FileNotFoundError:
+            _raw_logger.error("simple_switch_CLI not found in PATH")
             return False
-        _raw_logger.info("CLI %-50s → OK", cmd)
-        return True
-    except FileNotFoundError:
-        _raw_logger.error("simple_switch_CLI not found in PATH")
-        return False
-    except subprocess.TimeoutExpired:
-        _raw_logger.error("simple_switch_CLI timed out for: %s", cmd)
-        return False
-    except Exception as exc:
-        _raw_logger.error("simple_switch_CLI error: %s", exc)
-        return False
+        except subprocess.TimeoutExpired:
+            _raw_logger.error("simple_switch_CLI timed out for: %s", cmd)
+            if attempt < retries:
+                continue
+            return False
+        except Exception as exc:
+            _raw_logger.error("simple_switch_CLI error: %s", exc)
+            return False
+    return False
 
 
 def write_register(thrift_port: int, register_name: str, index: int, value: int):
@@ -170,11 +178,24 @@ async def main(args: argparse.Namespace):
     )
     use_cloud = not args.no_cloud
 
+    _initialised = False          # guard against re-entrant ready_handler
+
     async def controller_ready_handler(switch: finsy.Switch):
+        nonlocal _initialised
+        if _initialised:
+            logger.info("[%s] ready_handler re-invoked — skipping (already initialised)",
+                        switch.name)
+            return
+
         logger.info("[%s] Starting FeBEx initialisation...", switch.name)
 
-        # Clear all existing state
-        await switch.delete_all()
+        # Clear existing table entries only (avoid P4Runtime register ops
+        # which BMv2 does not support and would cause errors)
+        try:
+            await switch.delete_all()
+        except Exception as exc:
+            logger.warning("[%s] delete_all partial failure (expected on BMv2): %s",
+                           switch.name, exc)
 
         # ── 1. Tenant steering LPM entries ──────────────────────────
         entries = []
@@ -212,6 +233,7 @@ async def main(args: argparse.Namespace):
                 "[%s] Epoch rotation every %.1fs", switch.name, epoch_interval
             )
 
+        _initialised = True
         logger.info("[%s] Controller ready", switch.name)
 
     # ── Connect and run ──────────────────────────────────────────────

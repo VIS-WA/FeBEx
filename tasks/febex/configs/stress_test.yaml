@@ -1,0 +1,27 @@
+# Stress test scenario — high coverage density, many tenants
+# 200 EDs, 20 hotspots, 8 tenants, avg 6 hotspots per device
+
+topology:
+  num_edge_devices: 200
+  num_hotspots: 20
+  num_tenants: 8
+
+coverage:
+  mode: "probabilistic"
+  avg_hotspots_per_device: 6.0
+  min_coverage: 2
+  max_coverage: 15
+  distribution: "poisson"
+
+workload:
+  uplinks_per_device: 50
+  inter_arrival_ms: 80
+  payload_size_bytes: 20
+
+dedup:
+  enabled: true
+  register_size: 65536
+  epoch_interval_s: 5
+
+experiment:
+  seed: 42

@@ -1,0 +1,27 @@
+# Large city scenario — higher scale deployment
+# 500 EDs, 50 hotspots, 4 tenants
+
+topology:
+  num_edge_devices: 500
+  num_hotspots: 50
+  num_tenants: 4
+
+coverage:
+  mode: "probabilistic"
+  avg_hotspots_per_device: 3.5
+  min_coverage: 1
+  max_coverage: 12
+  distribution: "poisson"
+
+workload:
+  uplinks_per_device: 50
+  inter_arrival_ms: 100
+  payload_size_bytes: 20
+
+dedup:
+  enabled: true
+  register_size: 65536
+  epoch_interval_s: 5
+
+experiment:
+  seed: 42

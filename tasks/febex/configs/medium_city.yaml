@@ -1,0 +1,27 @@
+# Medium city scenario — realistic urban deployment
+# 100 EDs, 10 hotspots, 4 tenants, probabilistic coverage
+
+topology:
+  num_edge_devices: 100
+  num_hotspots: 10
+  num_tenants: 4
+
+coverage:
+  mode: "probabilistic"
+  avg_hotspots_per_device: 3.2
+  min_coverage: 1
+  max_coverage: 8
+  distribution: "poisson"
+
+workload:
+  uplinks_per_device: 50
+  inter_arrival_ms: 100
+  payload_size_bytes: 20
+
+dedup:
+  enabled: true
+  register_size: 65536
+  epoch_interval_s: 5
+
+experiment:
+  seed: 42

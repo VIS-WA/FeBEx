@@ -152,11 +152,14 @@ control FeBExIngress(
         if (meta.is_duplicate == 1) {
             drop();
         } else {
-            // Clone the first-forwarded copy to the Helium Cloud host.
-            // Clone session 100 is configured by the controller to point
-            // to the cloud port.  The clone carries gw_id in hdr.febex,
+            // Clone the first-forwarded copy to the Helium Cloud host,
+            // but only if the controller configured a cloud port.
+            // Clone session 100 is set by the controller to point to
+            // the cloud port.  The clone carries gw_id in hdr.febex,
             // letting the cloud identify which hotspot sent first.
-            clone(CloneType.I2E, (bit<32>)100);
+            if (meta.cloud_port != 0) {
+                clone(CloneType.I2E, (bit<32>)100);
+            }
         }
     }
 }

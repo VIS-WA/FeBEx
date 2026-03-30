@@ -1,0 +1,30 @@
+# Small test scenario — for unit tests and quick validation
+# 5 EDs, 3 hotspots, 2 tenants, explicit coverage matrix
+
+topology:
+  num_edge_devices: 5
+  num_hotspots: 3
+  num_tenants: 2
+
+coverage:
+  mode: "explicit"
+  # ED0: gw1,gw2  ED1: gw2,gw3  ED2: gw1,gw3  ED3: gw1,gw2,gw3  ED4: gw1
+  matrix:
+    - [1, 1, 0]
+    - [0, 1, 1]
+    - [1, 0, 1]
+    - [1, 1, 1]
+    - [1, 0, 0]
+
+workload:
+  uplinks_per_device: 10
+  inter_arrival_ms: 50
+  payload_size_bytes: 20
+
+dedup:
+  enabled: true
+  register_size: 65536
+  epoch_interval_s: 5
+
+experiment:
+  seed: 42

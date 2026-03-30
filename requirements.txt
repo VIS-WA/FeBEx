@@ -1,0 +1,10 @@
+# FeBEx experiment framework dependencies
+# Install: pip install -r requirements.txt
+#
+# Note: scapy, finsy, and mininet are already installed on the P4 VM.
+# These are the ADDITIONAL packages needed for experiments & evaluation.
+
+PyYAML>=6.0
+matplotlib>=3.5
+numpy>=1.21
+networkx>=2.6
