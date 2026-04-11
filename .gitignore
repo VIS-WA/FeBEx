@@ -1,3 +1,23 @@
 .claude/
 **/__pycache__/
 **/*.py[cod]
+
+# Node / frontend tooling
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite / Slidev generated caches and outputs
+.vite/
+.slidev/
+dist/
+*.tmp
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Local experiment or generated presentation artifacts
+presentations/slidev-evals/evaluations.pptx
