@@ -75,7 +75,8 @@ def make_cfg(N=100, K=10, M=2, avg_cov=3.0, uplinks=50, inter_ms=100,
     }
 
 
-def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=None):
+def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=None,
+                     variant=1):
     """Run a single experiment via run_experiment.py."""
     # Write temp config
     cfg_path = Path(f"/tmp/febex_cfg_{os.getpid()}.yaml")
@@ -85,6 +86,7 @@ def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=No
         "sudo", PYTHON, str(SCRIPT_DIR / "run_experiment.py"),
         "--config",      str(cfg_path),
         "--results-dir", str(results_dir),
+        "--variant",     str(variant),
     ]
     if not dedup:
         cmd.append("--no-dedup")
@@ -94,7 +96,7 @@ def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=No
         cmd += ["--epoch-interval", str(epoch_interval)]
 
     print(f"\n{'─'*50}")
-    print(f"  Running: dedup={'ON' if dedup else 'OFF'}")
+    print(f"  Running: dedup={'ON' if dedup else 'OFF'}, variant=V{variant}")
     print(f"  Results: {results_dir}")
     print(f"{'─'*50}", flush=True)
 
@@ -106,6 +108,34 @@ def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=No
         pass
 
     return result.returncode == 0
+
+
+def recompile_p4_variant(variant: int, dedup_size=None):
+    """Compile a specific dedup variant (1/2/3) into build/p4/febex.json."""
+    src_map = {
+        1: "tasks/febex/p4/febex.p4",
+        2: "tasks/febex/p4/febex_v2.p4",
+        3: "tasks/febex/p4/febex_v3.p4",
+    }
+    src = src_map.get(variant, src_map[1])
+    extra = [f"DEDUP_SIZE={dedup_size}"] if dedup_size else []
+    print(f"\n  Compiling P4 variant V{variant} ({src})...", flush=True)
+    cmd = [MAKE, "-C", str(REPO_DIR), "build-clean", "build-init"]
+    subprocess.run(cmd, capture_output=True)
+
+    p4c_args = [
+        "p4c-bm2-ss", "--p4v", "16",
+        "--p4runtime-files", str(REPO_DIR / "build/p4/febex.p4info.txtpb"),
+        "-o", str(REPO_DIR / "build/p4/febex.json"),
+        str(REPO_DIR / src),
+    ]
+    if dedup_size:
+        p4c_args.insert(1, f"-DDEDUP_TABLE_SIZE={dedup_size}")
+    result = subprocess.run(p4c_args, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  Compile FAILED: {result.stderr}", file=sys.stderr)
+        return False
+    return True
 
 
 def recompile_p4(dedup_size=None):
@@ -324,6 +354,89 @@ def run_e7(quick=False):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  E8: Epoch-boundary leakage — variant comparison
+# ═══════════════════════════════════════════════════════════════════════
+
+def run_e8(quick=False):
+    """
+    Stress-test epoch-boundary leakage and compare three dedup variants:
+
+      V1 — Single epoch (baseline, original FeBEx):
+           Packets that arrive just after an epoch rotation are treated as
+           fresh and forwarded — boundary leakage.
+
+      V2 — Sliding two-epoch window:
+           Packets match if stored epoch == current OR == previous epoch.
+           Controller writes prev_epoch before advancing current_epoch.
+           Eliminates boundary leakage at the cost of slightly longer
+           entry lifetime (2 × epoch_interval instead of 1 ×).
+
+      V3 — Dual-register Bloom guard:
+           Two independent register arrays; packet is a duplicate only if
+           it matches in BOTH.  Epoch boundary behaviour is the same as V1
+           (both arrays expire simultaneously), but false-positive
+           suppression (collision-caused unique-uplink loss) is ≈ 1/N^2.
+
+    Stress conditions:
+      - Short epoch interval (1 s) to maximise boundary crossings
+      - Slow inter-arrival (500 ms) so many packets span epoch boundaries
+        (with 50 uplinks × 100 ms = 5 s total traffic and 1 s epochs,
+         boundary crossings are practically guaranteed)
+      - avg_cov = 5 (each uplink has 5 copies) for high duplicate volume
+
+    Metrics collected per variant:
+      - Backhaul savings %          (duplicate suppression effectiveness)
+      - Delivery ratio              (correctness — no unique-uplink loss)
+      - Leakage count               (boundary duplicates that slipped through)
+    """
+    print("\n" + "=" * 60)
+    print("  E8: Epoch-Boundary Leakage — Variant Comparison")
+    print("=" * 60)
+
+    base_dir = RESULTS_DIR / "E8"
+
+    # Stress workload: short epoch, slow inter-arrival, high coverage
+    epoch_s  = 1 if quick else 1      # 1 s epoch → many boundary crossings
+    inter_ms = 500                     # 500 ms between FCnt rounds
+    avg_cov  = 5                       # 5 copies per unique uplink
+    uplinks  = 10 if quick else 30     # 10–30 uplinks per device
+
+    cfg = make_cfg(N=100, K=10, M=2, avg_cov=avg_cov,
+                   uplinks=uplinks, inter_ms=inter_ms, epoch_s=epoch_s)
+
+    # Shared coverage matrix so all three variants see identical traffic
+    cov = generate_coverage(cfg, seed=42)
+
+    for variant in [1, 2, 3]:
+        label = {1: "V1_single_epoch", 2: "V2_sliding_window",
+                 3: "V3_dual_register"}[variant]
+        point_dir = base_dir / label
+        point_dir.mkdir(parents=True, exist_ok=True)
+
+        cfg_copy = copy.deepcopy(cfg)
+        cfg_copy["dedup"]["epoch_interval_s"] = epoch_s
+        (point_dir / "config.yaml").write_text(yaml.dump(cfg_copy))
+        (point_dir / "coverage.json").write_text(json.dumps(cov, indent=2))
+
+        # Compile the correct P4 variant into build/p4/febex.json
+        if not recompile_p4_variant(variant):
+            print(f"  Skipping V{variant} due to compile failure")
+            continue
+
+        # dedup OFF baseline (V1 compile is sufficient — no dedup logic runs)
+        if variant == 1:
+            run_orchestrator(cfg_copy, point_dir, dedup=False, with_cloud=False,
+                             epoch_interval=epoch_s, variant=1)
+
+        # dedup ON with this variant
+        run_orchestrator(cfg_copy, point_dir, dedup=True, with_cloud=False,
+                         epoch_interval=epoch_s, variant=variant)
+
+    # Restore default V1 build
+    recompile_p4()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -335,6 +448,7 @@ EXPERIMENTS = {
     "E5": run_e5,
     "E6": run_e6,
     "E7": run_e7,
+    "E8": run_e8,
 }
 
 

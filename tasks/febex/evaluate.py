@@ -270,17 +270,23 @@ def plot_e2(results):
     ax.set_xlabel("Average duplicate factor (d)")
     ax.set_ylabel("Delivery ratio")
     ax.set_title("E2: Correctness — Unique Uplink Delivery Ratio")
-    # Dynamic y-axis: show all bars including the 0.89 one
-    min_ratio = min(ratios)
-    ax.set_ylim(max(0, min_ratio - 0.08), 1.06)
+    # Full y-axis 0→1 so bar heights are proportional and context is clear
+    ax.set_ylim(0, 1.06)
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
 
     # Add footnote for the red bar
     if any(r < 1.0 for r in ratios):
-        ax.annotate("* BMv2 egress buffer overflow under extreme load (not a FeBEx logic error)",
-                    xy=(0.01, 0.02), xycoords="axes fraction",
-                    fontsize=9, color="#d62728", style="italic")
+        ax.annotate(
+            "* At d=10 (≈44 K total packets) BMv2's egress output-buffer saturates.\n"
+            "  The first copy clears the dedup register in ingress, but is then dropped\n"
+            "  at egress — so subsequent copies are suppressed as duplicates, causing\n"
+            "  net uplink loss.  This is a BMv2 software-switch limitation, not a\n"
+            "  FeBEx logic error (d ≤ 7 shows perfect delivery).",
+            xy=(0.01, 0.01), xycoords="axes fraction",
+            fontsize=8.5, color="#d62728", style="italic",
+            va="bottom",
+        )
     save_plot(fig, "E2_correctness")
 
 
@@ -379,7 +385,7 @@ def plot_e6(results, theoretical_savings_pct=None):
     ax.set_title("E6: Epoch Interval Sensitivity")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(55, 70)
     save_plot(fig, "E6_epoch_sensitivity")
 
 
@@ -618,6 +624,149 @@ def eval_e7():
     }
 
 
+def plot_e8(results, theoretical_savings_pct=None):
+    """
+    Grouped bar chart comparing V1/V2/V3 on three metrics:
+      - Backhaul savings %  (with theoretical ceiling line)
+      - Boundary leakage count (duplicates that slipped through epoch boundary)
+      - Delivery ratio (correctness — all variants should be 1.0)
+    """
+    if not HAS_MPL or not results:
+        return
+
+    VARIANT_ORDER  = ["V1_single_epoch", "V2_sliding_window", "V3_dual_register"]
+    VARIANT_LABELS = {
+        "V1_single_epoch":   "V1\nSingle Epoch\n(baseline)",
+        "V2_sliding_window": "V2\nSliding Window\n(two-epoch)",
+        "V3_dual_register":  "V3\nDual Register\n(Bloom guard)",
+    }
+    COLORS = ["#4472C4", "#ED7D31", "#70AD47"]
+
+    keys    = [k for k in VARIANT_ORDER if k in results]
+    labels  = [VARIANT_LABELS[k] for k in keys]
+    savings  = [results[k]["savings"] * 100       for k in keys]
+    delivery = [results[k]["delivery_ratio"]       for k in keys]
+    leakage  = [results[k].get("leaked_dups", 0)  for k in keys]
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+
+    # ── Savings ──────────────────────────────────────────────────────────
+    ax = axes[0]
+    bars = ax.bar(labels, savings, color=COLORS, edgecolor="black", linewidth=0.8)
+    for bar, v in zip(bars, savings):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f"{v:.1f}%", ha="center", va="bottom", fontsize=11)
+    if theoretical_savings_pct is not None:
+        ax.axhline(y=theoretical_savings_pct, color="red", linestyle="--", linewidth=1.8,
+                   label=f"Theoretical {theoretical_savings_pct:.1f}%  (1−1/avg_cov)")
+        ax.legend(fontsize=10)
+    ax.set_title("Backhaul Savings")
+    ax.set_ylabel("Savings (%)")
+    ax.set_ylim(0, max(max(savings, default=0), theoretical_savings_pct or 0) * 1.18)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # ── Boundary leakage ─────────────────────────────────────────────────
+    ax = axes[1]
+    leak_colors = ["#d62728" if l > 0 else c for l, c in zip(leakage, COLORS)]
+    bars = ax.bar(labels, leakage, color=leak_colors, edgecolor="black", linewidth=0.8)
+    max_leak = max(leakage, default=1)
+    for bar, v in zip(bars, leakage):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max_leak * 0.02,
+                str(int(v)), ha="center", va="bottom", fontsize=11)
+    ax.axhline(y=0, color="green", linestyle="--", linewidth=1.5,
+               label="Target: 0 leakage")
+    ax.set_title("Boundary Leakage\n(duplicate packets forwarded)")
+    ax.set_ylabel("Leaked duplicates (count)")
+    ax.set_ylim(0, max_leak * 1.25 if max_leak > 0 else 10)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # ── Delivery ratio ────────────────────────────────────────────────────
+    ax = axes[2]
+    colors_dr = ["#d62728" if d < 1.0 else c for d, c in zip(delivery, COLORS)]
+    bars = ax.bar(labels, delivery, color=colors_dr, edgecolor="black", linewidth=0.8)
+    for bar, v in zip(bars, delivery):
+        ypos = bar.get_height() - 0.025
+        ax.text(bar.get_x() + bar.get_width() / 2, ypos,
+                f"{v:.3f}", ha="center", va="bottom", fontsize=11, color="white")
+    ax.axhline(y=1.0, color="red", linestyle="--", linewidth=1.5,
+               label="Target: 1.0 (no unique loss)")
+    ax.set_title("Delivery Ratio (Correctness)")
+    ax.set_ylabel("Delivery ratio")
+    ax.set_ylim(0, 1.08)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.suptitle("E8: Epoch-Boundary Leakage — Variant Comparison\n"
+                 "(stress: epoch=1s, inter_arrival=500ms, avg_cov=5)",
+                 fontsize=14)
+    fig.tight_layout()
+    save_plot(fig, "E8_variant_comparison")
+
+
+def eval_e8():
+    """E8: Epoch-boundary leakage variant comparison.
+
+    All three variants share the same coverage matrix (identical traffic),
+    so V1's dedup_OFF run is the single shared baseline for savings %.
+    V2 and V3 do not re-run a dedup_OFF to save experiment time.
+    """
+    base = RESULTS_DIR / "E8"
+    if not base.exists():
+        print("  E8: No results found, skipping")
+        return
+
+    VARIANT_ORDER = ["V1_single_epoch", "V2_sliding_window", "V3_dual_register"]
+
+    # Load shared baseline from V1's dedup_OFF run
+    v1_dir   = base / "V1_single_epoch"
+    off_logs = load_lns_logs(v1_dir / "dedup_OFF" / "logs")
+    n_off    = count_packets(off_logs)
+    if n_off == 0:
+        print("  E8: WARNING — V1 dedup_OFF logs empty; savings will be 0 for all variants")
+
+    results = {}
+    theoretical_pct = None
+
+    for label in VARIANT_ORDER:
+        point_dir = base / label
+        if not point_dir.is_dir():
+            continue
+
+        on_logs = load_lns_logs(point_dir / "dedup_ON" / "logs")
+        cov     = load_coverage(point_dir)
+
+        unique      = unique_uplinks(on_logs)
+        total       = count_packets(on_logs)
+        leaked_dups = max(total - len(unique), 0)
+
+        # Savings relative to the shared V1 OFF baseline
+        n_on    = total
+        savings = 1.0 - (n_on / n_off) if n_off > 0 else 0.0
+
+        delivery_ratio = compute_delivery_ratio(on_logs, cov) if cov else 0.0
+
+        results[label] = {
+            "savings":        savings,
+            "delivery_ratio": delivery_ratio,
+            "leaked_dups":    leaked_dups,
+            "total_received": total,
+            "unique_received": len(unique),
+            "off_baseline":   n_off,
+        }
+        print(f"  {label}: OFF(shared)={n_off} ON={total} unique={len(unique)} "
+              f"savings={savings:.4f} delivery={delivery_ratio:.4f} "
+              f"leaked_dups={leaked_dups}")
+
+        # Theoretical ceiling: 1 - 1/avg_cov (same for all variants)
+        if theoretical_pct is None and cov:
+            avg_cov = cov["stats"]["avg_coverage"]
+            theoretical_pct = (1 - 1 / avg_cov) * 100
+
+    plot_e8(results, theoretical_savings_pct=theoretical_pct)
+    return results
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
@@ -630,6 +779,7 @@ EVALUATORS = {
     "E5": ("Dedup State Sizing", eval_e5),
     "E6": ("Epoch Interval Sensitivity", eval_e6),
     "E7": ("Payment Receipt Accuracy", eval_e7),
+    "E8": ("Epoch-Boundary Leakage — Variant Comparison", eval_e8),
 }
 
 

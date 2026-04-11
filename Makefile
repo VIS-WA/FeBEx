@@ -7,7 +7,7 @@ TEMP_P4_SWITCH_DIR     = $(TEMP_DIR)/p4_switch
 TEMP_P4RT_CONTROLLER_DIR = $(TEMP_DIR)/p4rt_controller
 
 P4_COMPILER        = p4c-bm2-ss
-PYTHON_INTERPRETER = /opt/p4/p4dev-python-venv/bin/python3
+PYTHON_INTERPRETER ?= /opt/p4/p4dev-python-venv/bin/python3
 
 # ── FeBEx variables ───────────────────────────────────────────────────
 
@@ -23,10 +23,14 @@ FEBEX_P4_ARGS  = --p4v 16
 FEBEX_P4_ARGS += --p4runtime-files $(BUILD_P4_DIR)/$(FEBEX_P4_COMPILER_OUT).p4info.txtpb
 FEBEX_P4_ARGS += -o $(BUILD_P4_DIR)/$(FEBEX_P4_COMPILER_OUT).json
 
+FEBEX_V2_P4_COMPILER_IN = $(FEBEX_P4_DIR)/febex_v2.p4
+FEBEX_V3_P4_COMPILER_IN = $(FEBEX_P4_DIR)/febex_v3.p4
+
 CLI_NETWORK_FILE = mininet/networks.py
 
 .PHONY: all build-init build-clean run-init run-stop run-clean clean \
-        build-febex build-febex-size run-febex run-tests-febex \
+        build-febex build-febex-size build-febex-v2 build-febex-v3 \
+        run-febex run-tests-febex \
         run-experiments run-experiments-quick evaluate visualize \
         visualize-singapore generate-submission
 
@@ -46,6 +50,18 @@ build-febex-size:
 	$(MAKE) build-clean
 	$(MAKE) build-init
 	$(P4_COMPILER) $(FEBEX_P4_ARGS) -DDEDUP_TABLE_SIZE=$(DEDUP_SIZE) $(FEBEX_P4_COMPILER_IN)
+
+# V2: sliding two-epoch window (eliminates boundary leakage)
+build-febex-v2:
+	$(MAKE) build-clean
+	$(MAKE) build-init
+	$(P4_COMPILER) $(FEBEX_P4_ARGS) $(FEBEX_V2_P4_COMPILER_IN)
+
+# V3: dual-register Bloom guard (reduces false-positive suppression)
+build-febex-v3:
+	$(MAKE) build-clean
+	$(MAKE) build-init
+	$(P4_COMPILER) $(FEBEX_P4_ARGS) $(FEBEX_V3_P4_COMPILER_IN)
 
 run-febex:
 	$(MAKE) run-clean

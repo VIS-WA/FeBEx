@@ -49,11 +49,18 @@ from networks import FeBExTopology  # noqa: E402
 from generate_coverage import generate  # noqa: E402
 
 PYTHON      = sys.executable
-CTRL_SCRIPT = SCRIPT_DIR / "p4rt_controller" / "controller.py"
 TGEN_SCRIPT = SCRIPT_DIR / "traffic_gen.py"
 LNS_SCRIPT  = SCRIPT_DIR / "lns_receiver.py"
 CLOUD_SCRIPT = SCRIPT_DIR / "cloud_receiver.py"
 BUILD_DIR   = REPO_DIR / "build" / "p4"
+
+# Variant → (p4 json name, controller script)
+# V1 = default single-epoch; V2 = sliding window; V3 = dual-register
+VARIANT_MAP = {
+    1: ("febex.json",    "controller.py"),
+    2: ("febex_v2.json", "controller_v2.py"),
+    3: ("febex_v3.json", "controller.py"),    # V3 uses same controller as V1
+}
 
 GRPC_PORT   = 50051
 THRIFT_PORT = 9090
@@ -94,6 +101,7 @@ def run_experiment(
     with_cloud: bool = True,
     register_size: int = None,
     epoch_interval: float = None,
+    variant: int = 1,
 ):
     """
     Run a single experiment (dedup ON or OFF) and collect logs.
@@ -130,12 +138,19 @@ def run_experiment(
     cov_path.write_text(json.dumps(coverage_json, indent=2))
 
     # ── 1. Check P4 build ──────────────────────────────────────────────
+    # The controller loads build/p4/febex.json (fixed path).
+    # For variants, the caller recompiles with the correct source before
+    # calling run_experiment, so the JSON is always named febex.json.
+    _, ctrl_script_name = VARIANT_MAP.get(variant, VARIANT_MAP[1])
+    ctrl_script = SCRIPT_DIR / "p4rt_controller" / ctrl_script_name
+
     if not (BUILD_DIR / "febex.json").exists():
         print("ERROR: P4 not compiled. Run 'make build-febex' first.", file=sys.stderr)
         return False
 
     # ── 2. Start Mininet ───────────────────────────────────────────────
-    print(f"  Starting Mininet (K={K}, M={M}, cloud={with_cloud})...", flush=True)
+    print(f"  Starting Mininet (K={K}, M={M}, cloud={with_cloud}, variant=V{variant})...",
+          flush=True)
     cleanup_stale()
     topo = FeBExTopology(
         num_gateways=K, num_lns=M, with_cloud=with_cloud,
@@ -175,7 +190,7 @@ def run_experiment(
         ctrl_fh = open(ctrl_log, "w")
 
         ctrl_cmd = [
-            PYTHON, "-u", str(CTRL_SCRIPT),
+            PYTHON, "-u", str(ctrl_script),
             "--gateways",       str(K),
             "--tenants",        str(M),
             "--epoch-interval", str(epoch_interval),
@@ -309,6 +324,8 @@ def main():
                         help="Override epoch interval (seconds)")
     parser.add_argument("--coverage",    type=str, default=None,
                         help="Pre-generated coverage JSON (skip generation)")
+    parser.add_argument("--variant",     type=int, default=1, choices=[1, 2, 3],
+                        help="Dedup variant: 1=single-epoch(default) 2=sliding-window 3=dual-register")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -344,6 +361,7 @@ def main():
         dedup_enabled=dedup,
         with_cloud=with_cloud,
         epoch_interval=args.epoch_interval,
+        variant=args.variant,
     )
 
     if ok:

@@ -119,7 +119,7 @@ control FeBExIngress(
             );
 
             // Second independent hash → key_value for slot verification.
-            // base=1 ensures key_value ∈ [1, 0xFFFFFFFE], avoiding collision
+            // base=1 ensures key_value in [1, 0xFFFFFFFE], avoiding collision
             // with the zero-initialised register on the very first lookup.
             hash(
                 meta.key_value,

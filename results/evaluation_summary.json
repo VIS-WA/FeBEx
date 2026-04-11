@@ -163,5 +163,31 @@
     "valid_gw_id": 1021,
     "accuracy": 1.0,
     "match_rate": 1.0
+  },
+  "E8": {
+    "V1_single_epoch": {
+      "savings": 0.7769182389937107,
+      "delivery_ratio": 1.0,
+      "leaked_dups": 547,
+      "total_received": 3547,
+      "unique_received": 3000,
+      "off_baseline": 15900
+    },
+    "V2_sliding_window": {
+      "savings": 0.8113207547169812,
+      "delivery_ratio": 1.0,
+      "leaked_dups": 0,
+      "total_received": 3000,
+      "unique_received": 3000,
+      "off_baseline": 15900
+    },
+    "V3_dual_register": {
+      "savings": 0.7830817610062893,
+      "delivery_ratio": 1.0,
+      "leaked_dups": 449,
+      "total_received": 3449,
+      "unique_received": 3000,
+      "off_baseline": 15900
+    }
   }
 }
