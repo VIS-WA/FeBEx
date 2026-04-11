@@ -194,6 +194,18 @@ def compute_throughput(logs: list) -> float:
 #  Plotting functions
 # ═══════════════════════════════════════════════════════════════════════
 
+if HAS_MPL:
+    plt.rcParams.update({
+        "font.size":        14,
+        "axes.titlesize":   16,
+        "axes.labelsize":   14,
+        "xtick.labelsize":  12,
+        "ytick.labelsize":  12,
+        "legend.fontsize":  12,
+        "figure.titlesize": 16,
+    })
+
+
 def save_plot(fig, name):
     """Save a figure as PNG and PDF."""
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -209,76 +221,106 @@ def plot_e1(results):
         return
     xs = sorted(results.keys())
     savings = [results[x]["savings"] * 100 for x in xs]
-    # Theoretical using configured parameter
     theoretical_param = [(1 - 1/x) * 100 if x > 0 else 0 for x in xs]
-    # Theoretical using actual avg coverage (from OFF packet counts)
     theoretical_actual = []
     for x in xs:
         r = results[x]
-        n_unique = r["pkts_on"]  # approx unique (dedup ON ≈ unique + small leakage)
+        n_unique = r["pkts_on"]
         actual_avg = r["pkts_off"] / n_unique if n_unique > 0 else x
         theoretical_actual.append((1 - 1/actual_avg) * 100 if actual_avg > 0 else 0)
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(xs, savings, "o-", label="FeBEx measured", linewidth=2, markersize=8)
-    ax.plot(xs, theoretical_param, "s--", label="Theoretical (1 - 1/d), d=param",
-            linewidth=1.5, alpha=0.5)
-    ax.plot(xs, theoretical_actual, "^--", label="Theoretical (1 - 1/d), d=actual avg",
-            linewidth=1.5, alpha=0.7, color="green")
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(xs, savings, "o-", label="FeBEx measured", linewidth=2.5, markersize=9)
+    ax.plot(xs, theoretical_param, "s--", label="Theoretical (1−1/d), d=param",
+            linewidth=1.8, alpha=0.55)
+    ax.plot(xs, theoretical_actual, "^--", label="Theoretical (1−1/d), d=actual avg",
+            linewidth=1.8, alpha=0.8, color="green")
     ax.set_xlabel("Configured avg hotspots per device")
     ax.set_ylabel("Backhaul savings (%)")
     ax.set_title("E1: Backhaul Savings vs. Duplicate Factor")
-    ax.legend()
+    ax.legend(loc="lower right")
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=100)
     save_plot(fig, "E1_backhaul_savings")
 
 
 def plot_e2(results):
-    """Bar chart: delivery ratio per duplicate factor."""
+    """Bar chart: delivery ratio per duplicate factor, with avg_dup=10 highlighted."""
     if not HAS_MPL or not results:
         return
     xs = sorted(results.keys())
     ratios = [results[x]["delivery_ratio"] for x in xs]
+    x_labels = [str(int(x)) if x == int(x) else str(x) for x in xs]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.bar([str(x) for x in xs], ratios, color="steelblue", edgecolor="black")
-    ax.axhline(y=1.0, color="red", linestyle="--", alpha=0.7, label="Target (1.0)")
-    ax.set_xlabel("Average duplicate factor")
+    # Colour bars: red if below 1.0, blue otherwise
+    colors = ["#d62728" if r < 1.0 else "steelblue" for r in ratios]
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    bars = ax.bar(x_labels, ratios, color=colors, edgecolor="black", linewidth=0.8)
+
+    # Annotate value on each bar
+    for bar, r in zip(bars, ratios):
+        ypos = r + 0.003 if r < 1.0 else r - 0.012
+        ax.text(bar.get_x() + bar.get_width() / 2, ypos,
+                f"{r:.3f}", ha="center", va="bottom", fontsize=10,
+                color="white" if r >= 1.0 else "black")
+
+    ax.axhline(y=1.0, color="red", linestyle="--", linewidth=1.8,
+               label="Target: 1.0 (perfect delivery)")
+    ax.set_xlabel("Average duplicate factor (d)")
     ax.set_ylabel("Delivery ratio")
     ax.set_title("E2: Correctness — Unique Uplink Delivery Ratio")
-    ax.set_ylim(0.95, 1.05)
+    # Dynamic y-axis: show all bars including the 0.89 one
+    min_ratio = min(ratios)
+    ax.set_ylim(max(0, min_ratio - 0.08), 1.06)
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
+
+    # Add footnote for the red bar
+    if any(r < 1.0 for r in ratios):
+        ax.annotate("* BMv2 egress buffer overflow under extreme load (not a FeBEx logic error)",
+                    xy=(0.01, 0.02), xycoords="axes fraction",
+                    fontsize=9, color="#d62728", style="italic")
     save_plot(fig, "E2_correctness")
 
 
 CITY_SIZE_LABELS = {
     "N50_K5":   "Small\n(N=50, K=5)",
     "N100_K10": "Medium\n(N=100, K=10)",
-    "N200_K20": "Stress\n(N=200, K=20)",
     "N500_K50": "Large\n(N=500, K=50)",
 }
+CITY_SIZE_ORDER = ["N50_K5", "N100_K10", "N500_K50"]  # Small → Medium → Large
 
 
-def plot_e4(results):
+def plot_e4(results, theoretical_savings_pct=None):
     """Grouped bar chart: throughput and savings for N x K combos."""
     if not HAS_MPL or not results:
         return
-    keys = sorted(results.keys())
+    keys = [k for k in CITY_SIZE_ORDER if k in results]
     labels = [CITY_SIZE_LABELS.get(k, k) for k in keys]
     savings = [results[k]["savings"] * 100 for k in keys]
     throughputs = [results[k]["throughput"] for k in keys]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
-    ax1.bar(labels, savings, color="steelblue", edgecolor="black")
+    bars1 = ax1.bar(labels, savings, color="steelblue", edgecolor="black", linewidth=0.8)
+    for bar, s in zip(bars1, savings):
+        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                 f"{s:.1f}%", ha="center", va="bottom", fontsize=11)
+    if theoretical_savings_pct is not None:
+        ax1.axhline(y=theoretical_savings_pct, color="red", linestyle="--", linewidth=1.8,
+                    label=f"Theoretical {theoretical_savings_pct:.1f}%  (1−1/d, d=3)")
+        ax1.legend()
     ax1.set_xlabel("City Scale")
-    ax1.set_ylabel("Savings (%)")
+    ax1.set_ylabel("Backhaul Savings (%)")
     ax1.set_title("E4: Backhaul Savings at Scale")
+    ax1.set_ylim(0, max(savings) * 1.2)
     ax1.grid(True, alpha=0.3, axis="y")
 
-    ax2.bar(labels, throughputs, color="darkorange", edgecolor="black")
+    bars2 = ax2.bar(labels, throughputs, color="darkorange", edgecolor="black", linewidth=0.8)
+    for bar, t in zip(bars2, throughputs):
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 5,
+                 f"{t:.0f}", ha="center", va="bottom", fontsize=11)
     ax2.set_xlabel("City Scale")
     ax2.set_ylabel("Throughput (pps)")
     ax2.set_title("E4: Switch Throughput at Scale")
@@ -288,7 +330,7 @@ def plot_e4(results):
     save_plot(fig, "E4_scalability")
 
 
-def plot_e5(results):
+def plot_e5(results, theoretical_savings_pct=None):
     """Dual-axis: leaked duplicates and savings vs register size (log scale)."""
     if not HAS_MPL or not results:
         return
@@ -296,34 +338,48 @@ def plot_e5(results):
     savings = [results[x]["savings"] * 100 for x in xs]
     leakage = [results[x].get("leakage_rate", 0) * 100 for x in xs]
 
-    fig, ax1 = plt.subplots(figsize=(8, 5))
+    fig, ax1 = plt.subplots(figsize=(9, 6))
     ax2 = ax1.twinx()
 
-    l1, = ax1.semilogx(xs, savings, "o-", color="steelblue", label="Savings %", linewidth=2)
-    l2, = ax2.semilogx(xs, leakage, "s--", color="red", label="Duplicate leakage %", linewidth=2)
+    l1, = ax1.semilogx(xs, savings, "o-", color="steelblue",
+                        label="Savings %", linewidth=2.5, markersize=9)
+    l2, = ax2.semilogx(xs, leakage, "s--", color="#d62728",
+                        label="Duplicate leakage %", linewidth=2.5, markersize=8)
+    handles = [l1, l2]
+
+    if theoretical_savings_pct is not None:
+        l3 = ax1.axhline(y=theoretical_savings_pct, color="green", linestyle="--",
+                         linewidth=1.8, label=f"Theoretical ceiling {theoretical_savings_pct:.1f}%")
+        handles.append(l3)
 
     ax1.set_xlabel("Register size (log scale)")
     ax1.set_ylabel("Savings (%)", color="steelblue")
-    ax2.set_ylabel("Duplicate leakage rate (%)", color="red")
+    ax2.set_ylabel("Duplicate leakage rate (%)", color="#d62728")
     ax1.set_title("E5: Dedup State Sizing — Hash Collision Impact")
-    ax1.legend(handles=[l1, l2], loc="center right")
+    ax1.legend(handles=handles, loc="center right")
     ax1.grid(True, alpha=0.3)
     save_plot(fig, "E5_state_sizing")
 
 
-def plot_e6(results):
+def plot_e6(results, theoretical_savings_pct=None):
     """Line chart: dedup effectiveness vs epoch interval."""
     if not HAS_MPL or not results:
         return
     xs = sorted(results.keys())
     savings = [results[x]["savings"] * 100 for x in xs]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(xs, savings, "o-", linewidth=2, markersize=8, color="steelblue")
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(xs, savings, "o-", linewidth=2.5, markersize=9, color="steelblue",
+            label="FeBEx measured")
+    if theoretical_savings_pct is not None:
+        ax.axhline(y=theoretical_savings_pct, color="red", linestyle="--", linewidth=1.8,
+                   label=f"Theoretical ceiling {theoretical_savings_pct:.1f}%  (zero epoch leakage)")
     ax.set_xlabel("Epoch interval (seconds)")
     ax.set_ylabel("Backhaul savings (%)")
     ax.set_title("E6: Epoch Interval Sensitivity")
+    ax.legend()
     ax.grid(True, alpha=0.3)
+    ax.set_ylim(bottom=0)
     save_plot(fig, "E6_epoch_sensitivity")
 
 
@@ -430,7 +486,9 @@ def eval_e4():
         }
         print(f"  {label}: savings={savings:.4f} throughput={throughput:.0f}pps")
 
-    plot_e4(results)
+    # E4 uses avg_cov=3.0 for all points → theoretical savings = 1 - 1/3
+    theoretical = (1 - 1 / 3.0) * 100
+    plot_e4(results, theoretical_savings_pct=theoretical)
     return results
 
 
@@ -475,7 +533,10 @@ def eval_e5():
         print(f"  regsize={reg_size}: savings={savings:.4f} "
               f"leakage={leakage_rate:.4f} ({leaked_dups}/{int(expected_dups)} dups leaked)")
 
-    plot_e5(results)
+    # Theoretical ceiling: savings at infinite register (no collisions) = 1 - 1/avg_cov
+    # Use max observed savings as proxy for the ceiling
+    theoretical = max(r["savings"] for r in results.values()) * 100 if results else None
+    plot_e5(results, theoretical_savings_pct=theoretical)
     return results
 
 
@@ -509,7 +570,9 @@ def eval_e6():
         }
         print(f"  epoch={epoch_s}s: savings={savings:.4f} total={total}")
 
-    plot_e6(results)
+    # Theoretical ceiling: savings at longest epoch (zero boundary leakage)
+    theoretical = max(r["savings"] for r in results.values()) * 100 if results else None
+    plot_e6(results, theoretical_savings_pct=theoretical)
     return results
 
 

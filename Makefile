@@ -28,7 +28,7 @@ CLI_NETWORK_FILE = mininet/networks.py
 .PHONY: all build-init build-clean run-init run-stop run-clean clean \
         build-febex build-febex-size run-febex run-tests-febex \
         run-experiments run-experiments-quick evaluate visualize \
-        generate-submission
+        visualize-singapore generate-submission
 
 all:
 
@@ -98,6 +98,11 @@ evaluate:
 #   make visualize COVERAGE=coverage.json
 visualize:
 	$(PYTHON_INTERPRETER) $(TASKS_DIR)/febex/visualize_network.py --coverage $(COVERAGE)
+
+# Interactive Singapore map visualization (generates plots/singapore_map.html):
+#   make visualize-singapore
+visualize-singapore:
+	$(PYTHON_INTERPRETER) $(TASKS_DIR)/febex/visualize_singapore.py
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Common / infrastructure targets

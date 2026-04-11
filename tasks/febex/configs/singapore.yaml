@@ -1,0 +1,43 @@
+# Singapore LoRaWAN IXP Scenario
+# Realistic sensor distribution:
+#   - Dense in CBD, Marina Bay, Orchard Road
+#   - High density near Changi Airport (logistics IoT, cargo tracking)
+#   - Moderate in major HDB estates (Tampines, Woodlands, Punggol, Jurong)
+#   - Sparse in nature reserves and southern islands
+# 20 strategic hotspot locations cover the island
+
+scenario: singapore
+description: "Realistic Singapore LoRaWAN network — 150 IoT sensors, 20 hotspots, 4 LNS tenants"
+
+topology:
+  num_edge_devices: 150
+  num_hotspots: 20
+  num_tenants: 4
+
+coverage:
+  mode: probabilistic
+  avg_hotspots_per_device: 3.5
+  min_coverage: 1
+  max_coverage: 8
+  distribution: poisson
+
+workload:
+  uplinks_per_device: 50
+  inter_arrival_ms: 100
+  payload_size_bytes: 20
+
+dedup:
+  enabled: true
+  register_size: 65536
+  epoch_interval_s: 5.0
+
+experiment:
+  seed: 42
+
+# Singapore-specific metadata used by visualize_singapore.py
+geography:
+  region: Singapore
+  center: [1.3521, 103.8198]
+  switch_location: "one-north / Ayer Rajah (Equinix SG1)"
+  hotspot_placement: strategic
+  sensor_distribution: density_weighted

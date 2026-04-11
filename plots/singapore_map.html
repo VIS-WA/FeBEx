@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FeBEx — Singapore LoRaWAN IXP</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:100vh;background:#111827}
+
+/* ── Sidebar ── */
+#sidebar{
+  width:220px;min-width:220px;background:#111827;color:#e2e8f0;
+  display:flex;flex-direction:column;padding:18px 14px;
+  border-right:1px solid #1f2937;overflow-y:auto;
+}
+.logo{font-size:1.15rem;font-weight:800;color:#60a5fa;letter-spacing:-0.02em}
+.logo span{color:#34d399}
+.tagline{font-size:0.68rem;color:#6b7280;margin-top:3px;line-height:1.5;margin-bottom:18px}
+.sec{font-size:0.6rem;text-transform:uppercase;letter-spacing:.1em;color:#374151;
+     margin-top:14px;margin-bottom:7px}
+
+/* Config buttons */
+.cfg-btn{
+  display:block;width:100%;padding:7px 10px;margin-bottom:5px;
+  border:1px solid #1f2937;border-radius:6px;background:#1f2937;
+  color:#9ca3af;cursor:pointer;text-align:left;font-size:0.8rem;
+  transition:all .18s;
+}
+.cfg-btn:hover{background:#374151;color:#e5e7eb}
+.cfg-btn.active{background:#1e3a5f;border-color:#3b82f6;color:#93c5fd}
+.cfg-meta{font-size:0.65rem;color:#6b7280;display:block;margin-top:1px}
+.cfg-btn.active .cfg-meta{color:#60a5fa}
+
+/* Play/speed */
+#play-btn{
+  width:100%;padding:9px;margin-top:2px;border:none;border-radius:6px;
+  background:#065f46;color:#6ee7b7;cursor:pointer;
+  font-size:0.85rem;font-weight:700;transition:background .2s;
+}
+#play-btn:hover{background:#047857}
+#play-btn.playing{background:#7f1d1d;color:#fca5a5}
+.speed-row{display:flex;gap:4px;margin-top:7px}
+.spd{
+  flex:1;padding:4px 2px;border:1px solid #1f2937;border-radius:4px;
+  background:#1f2937;color:#9ca3af;cursor:pointer;font-size:0.68rem;
+  text-align:center;transition:all .15s;
+}
+.spd:hover{background:#374151}
+.spd.active{background:#312e81;border-color:#818cf8;color:#c7d2fe}
+
+/* Legend */
+.leg{display:flex;align-items:center;gap:7px;font-size:0.73rem;color:#9ca3af;margin-bottom:4px}
+.leg-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.leg-ico{width:13px;height:13px;flex-shrink:0;font-size:11px;
+         display:flex;align-items:center;justify-content:center}
+
+/* Stats */
+.stat{display:flex;justify-content:space-between;font-size:0.73rem;color:#9ca3af;margin-bottom:5px}
+.sv{color:#34d399;font-weight:700;font-variant-numeric:tabular-nums}
+.sv.dim{color:#6b7280}
+
+/* ── Map area ── */
+#wrap{flex:1;position:relative}
+#map{width:100%;height:100%}
+
+/* Status bar */
+#status{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(17,24,39,.88);color:#9ca3af;
+  padding:7px 14px;font-size:0.72rem;backdrop-filter:blur(6px);
+  border-top:1px solid #1f2937;z-index:1000;
+  display:flex;align-items:center;gap:8px;
+}
+#status-dot{width:7px;height:7px;border-radius:50%;background:#374151;flex-shrink:0}
+#status-dot.active{background:#34d399;animation:blink .9s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#status-txt{color:#d1d5db}
+
+/* Dedup popup — appears near the switch on the map */
+#dedup-pop{
+  position:absolute;display:none;
+  background:rgba(127,29,29,.93);color:#fca5a5;
+  padding:5px 11px;border-radius:6px;font-size:0.75rem;font-weight:700;
+  pointer-events:none;z-index:2000;white-space:nowrap;
+  border:1px solid #dc2626;
+  transform:translate(-50%, -110%);
+}
+
+/* Sensor pulse ring (divIcon) */
+.pulse-ring{
+  width:40px;height:40px;border-radius:50%;border:3px solid;
+  animation:ripple 1.2s ease-out forwards;
+}
+@keyframes ripple{
+  0%{transform:scale(.1);opacity:1}
+  100%{transform:scale(1.8);opacity:0}
+}
+
+/* Leaflet tweaks */
+.leaflet-container{background:#1e293b}
+.leaflet-tooltip{
+  background:rgba(17,24,39,.9);border:1px solid #374151;
+  color:#d1d5db;font-size:0.7rem;padding:4px 8px;border-radius:4px;
+}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div class="logo">Fe<span>B</span>Ex</div>
+  <div class="tagline">LoRaWAN in-network<br>dedup on P4 · Singapore IXP</div>
+
+  <div class="sec">City Scale</div>
+  <button class="cfg-btn" id="btn-small"     onclick="selectCfg('small')">
+    Small City <span class="cfg-meta">N=30, K=5, M=2</span>
+  </button>
+  <button class="cfg-btn" id="btn-medium"    onclick="selectCfg('medium')">
+    Medium City <span class="cfg-meta">N=100, K=10, M=4</span>
+  </button>
+  <button class="cfg-btn" id="btn-large"     onclick="selectCfg('large')">
+    Large City <span class="cfg-meta">N=500, K=20, M=4</span>
+  </button>
+  <button class="cfg-btn active" id="btn-singapore" onclick="selectCfg('singapore')">
+    Singapore ★ <span class="cfg-meta">N=150, K=20, M=4</span>
+  </button>
+
+  <div class="sec">Playback</div>
+  <button id="play-btn" onclick="togglePlay()">▶ Play</button>
+  <div class="speed-row">
+    <button class="spd"       onclick="setSpeed(0.5,this)">½×</button>
+    <button class="spd active" onclick="setSpeed(1,this)">1×</button>
+    <button class="spd"       onclick="setSpeed(2,this)">2×</button>
+    <button class="spd"       onclick="setSpeed(4,this)">4×</button>
+  </div>
+
+  <div class="sec">Legend</div>
+  <div id="leg-tenants"></div>
+  <div class="leg" style="margin-top:5px">
+    <div class="leg-ico">
+      <svg width="13" height="13" viewBox="0 0 13 13">
+        <polygon points="6.5,1 11,3.5 11,9.5 6.5,12 2,9.5 2,3.5"
+          fill="#374151" stroke="#9ca3af" stroke-width="1.2"/>
+      </svg>
+    </div>Hotspot (gateway)
+  </div>
+  <div class="leg">
+    <div class="leg-ico" style="color:#60a5fa;font-size:10px;font-weight:800">◆</div>
+    P4 FeBEx Switch
+  </div>
+  <div class="leg">
+    <div class="leg-ico" style="font-size:9px">▬</div>LNS Server
+  </div>
+  <div class="leg">
+    <div class="leg-ico">☁</div>Helium Cloud
+  </div>
+
+  <div class="sec">Live Stats</div>
+  <div class="stat"><span>Events</span>      <span class="sv dim" id="s-ev">0</span></div>
+  <div class="stat"><span>Forwarded</span>   <span class="sv dim" id="s-fwd">0</span></div>
+  <div class="stat"><span>Suppressed</span>  <span class="sv dim" id="s-sup">0</span></div>
+  <div class="stat"><span>Savings</span>     <span class="sv dim" id="s-sav">—</span></div>
+</div>
+
+<div id="wrap">
+  <div id="map"></div>
+  <div id="dedup-pop" id="dedup-pop"></div>
+  <div id="status">
+    <div id="status-dot"></div>
+    <span id="status-txt">Select a configuration and press Play.</span>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Injected config data ──────────────────────────────────────────────────────
+const CONFIGS = {"small":{"label":"Small","sensors":[{"lat":1.37707,"lon":103.99376,"tenant":1},{"lat":1.30391,"lon":103.81832,"tenant":0},{"lat":1.38984,"lon":103.85098,"tenant":0},{"lat":1.28162,"lon":103.86176,"tenant":0},{"lat":1.28388,"lon":103.86429,"tenant":0},{"lat":1.3365,"lon":103.76458,"tenant":0},{"lat":1.37312,"lon":103.95776,"tenant":1},{"lat":1.43294,"lon":103.79455,"tenant":0},{"lat":1.29214,"lon":103.7895,"tenant":0},{"lat":1.28712,"lon":103.83444,"tenant":0},{"lat":1.34755,"lon":103.94082,"tenant":1},{"lat":1.35809,"lon":103.76139,"tenant":0},{"lat":1.38529,"lon":103.88467,"tenant":1},{"lat":1.33218,"lon":103.7389,"tenant":0},{"lat":1.3041,"lon":103.83536,"tenant":0},{"lat":1.30935,"lon":103.83611,"tenant":0},{"lat":1.35424,"lon":104.0045,"tenant":1},{"lat":1.30305,"lon":103.85282,"tenant":0},{"lat":1.35681,"lon":103.98452,"tenant":1},{"lat":1.44357,"lon":103.80007,"tenant":0},{"lat":1.35943,"lon":103.73722,"tenant":0},{"lat":1.37965,"lon":103.96551,"tenant":1},{"lat":1.31077,"lon":103.83337,"tenant":0},{"lat":1.30887,"lon":103.85269,"tenant":0},{"lat":1.37365,"lon":103.85975,"tenant":0},{"lat":1.29007,"lon":103.8556,"tenant":0},{"lat":1.30499,"lon":103.84335,"tenant":0},{"lat":1.29191,"lon":103.82206,"tenant":0},{"lat":1.28805,"lon":103.89132,"tenant":1},{"lat":1.32235,"lon":103.86535,"tenant":0}],"hotspots":[{"lat":1.2793,"lon":103.8478},{"lat":1.2834,"lon":103.8607},{"lat":1.3048,"lon":103.8318},{"lat":1.3644,"lon":103.9915},{"lat":1.3333,"lon":103.7436}],"coverage":[[0,0,0,1,0],[1,1,1,0,0],[0,0,1,0,0],[1,1,1,0,0],[1,1,1,0,0],[1,1,1,0,1],[0,1,0,1,0],[0,0,0,0,1],[1,1,1,0,1],[1,1,1,0,0],[0,0,0,1,0],[0,0,1,0,1],[0,0,1,0,0],[0,0,0,0,1],[1,1,1,0,1],[1,1,1,0,1],[0,0,0,1,0],[1,1,1,0,1],[0,0,0,1,0],[0,0,0,0,1],[0,0,1,0,1],[0,0,0,1,0],[1,1,1,0,1],[1,1,1,0,0],[1,1,1,1,1],[1,1,1,0,0],[1,1,1,0,0],[1,1,1,0,0],[1,1,1,1,0],[1,1,1,0,0]],"switch":{"lat":1.298,"lon":103.789},"lns":[{"lat":1.259,"lon":103.82,"tenant":0},{"lat":1.265,"lon":103.895,"tenant":1}],"cloud":{"lat":1.238,"lon":103.83},"stats":{"N":30,"K":5,"M":2,"avg_coverage":2.53}},"medium":{"label":"Medium","sensors":[{"lat":1.37707,"lon":103.99376,"tenant":3},{"lat":1.30391,"lon":103.81832,"tenant":1},{"lat":1.38984,"lon":103.85098,"tenant":1},{"lat":1.28162,"lon":103.86176,"tenant":1},{"lat":1.28388,"lon":103.86429,"tenant":1},{"lat":1.3365,"lon":103.76458,"tenant":0},{"lat":1.37312,"lon":103.95776,"tenant":3},{"lat":1.43294,"lon":103.79455,"tenant":1},{"lat":1.29214,"lon":103.7895,"tenant":0},{"lat":1.28712,"lon":103.83444,"tenant":1},{"lat":1.34755,"lon":103.94082,"tenant":3},{"lat":1.35809,"lon":103.76139,"tenant":0},{"lat":1.38529,"lon":103.88467,"tenant":2},{"lat":1.33218,"lon":103.7389,"tenant":0},{"lat":1.3041,"lon":103.83536,"tenant":1},{"lat":1.30935,"lon":103.83611,"tenant":1},{"lat":1.35424,"lon":104.0045,"tenant":3},{"lat":1.30305,"lon":103.85282,"tenant":1},{"lat":1.35681,"lon":103.98452,"tenant":3},{"lat":1.44357,"lon":103.80007,"tenant":1},{"lat":1.35943,"lon":103.73722,"tenant":0},{"lat":1.37965,"lon":103.96551,"tenant":3},{"lat":1.31077,"lon":103.83337,"tenant":1},{"lat":1.30887,"lon":103.85269,"tenant":1},{"lat":1.37365,"lon":103.85975,"tenant":1},{"lat":1.29007,"lon":103.8556,"tenant":1},{"lat":1.30499,"lon":103.84335,"tenant":1},{"lat":1.29191,"lon":103.82206,"tenant":1},{"lat":1.28805,"lon":103.89132,"tenant":2},{"lat":1.32235,"lon":103.86535,"tenant":1},{"lat":1.26696,"lon":103.83253,"tenant":1},{"lat":1.28972,"lon":103.86413,"tenant":1},{"lat":1.33597,"lon":103.7437,"tenant":0},{"lat":1.39752,"lon":103.84627,"tenant":1},{"lat":1.35213,"lon":103.98824,"tenant":3},{"lat":1.37746,"lon":104.0039,"tenant":3},{"lat":1.33762,"lon":103.85707,"tenant":1},{"lat":1.30041,"lon":103.83178,"tenant":1},{"lat":1.38636,"lon":103.83827,"tenant":1},{"lat":1.35726,"lon":103.98494,"tenant":3},{"lat":1.32771,"lon":103.95127,"tenant":3},{"lat":1.32797,"lon":103.86353,"tenant":1},{"lat":1.29784,"lon":103.83718,"tenant":1},{"lat":1.40271,"lon":103.9064,"tenant":2},{"lat":1.3844,"lon":103.84348,"tenant":1},{"lat":1.3338,"lon":103.87134,"tenant":2},{"lat":1.35981,"lon":103.96746,"tenant":3},{"lat":1.33081,"lon":103.77592,"tenant":0},{"lat":1.28547,"lon":103.87158,"tenant":2},{"lat":1.44039,"lon":103.79988,"tenant":1},{"lat":1.36179,"lon":103.73871,"tenant":0},{"lat":1.32465,"lon":103.86891,"tenant":2},{"lat":1.2791,"lon":103.85727,"tenant":1},{"lat":1.31372,"lon":103.83728,"tenant":1},{"lat":1.31629,"lon":103.82181,"tenant":1},{"lat":1.28042,"lon":103.86559,"tenant":1},{"lat":1.31585,"lon":103.84737,"tenant":1},{"lat":1.31085,"lon":103.74839,"tenant":0},{"lat":1.35175,"lon":103.96226,"tenant":3},{"lat":1.27644,"lon":103.86536,"tenant":1},{"lat":1.41966,"lon":103.74587,"tenant":0},{"lat":1.27185,"lon":103.85408,"tenant":1},{"lat":1.38006,"lon":103.85215,"tenant":1},{"lat":1.31359,"lon":103.86769,"tenant":2},{"lat":1.31151,"lon":103.82728,"tenant":1},{"lat":1.37663,"lon":103.8439,"tenant":1},{"lat":1.38763,"lon":103.72062,"tenant":0},{"lat":1.29735,"lon":103.78168,"tenant":0},{"lat":1.32206,"lon":103.87435,"tenant":2},{"lat":1.25825,"lon":103.87183,"tenant":2},{"lat":1.30644,"lon":103.82211,"tenant":1},{"lat":1.30555,"lon":103.85287,"tenant":1},{"lat":1.33181,"lon":103.7345,"tenant":0},{"lat":1.31383,"lon":103.82949,"tenant":1},{"lat":1.33324,"lon":103.73811,"tenant":0},{"lat":1.30786,"lon":103.74304,"tenant":0},{"lat":1.28326,"lon":103.8466,"tenant":1},{"lat":1.2669,"lon":103.83768,"tenant":1},{"lat":1.31553,"lon":103.84474,"tenant":1},{"lat":1.29674,"lon":103.8248,"tenant":1},{"lat":1.27604,"lon":103.85521,"tenant":1},{"lat":1.29825,"lon":103.7998,"tenant":1},{"lat":1.29651,"lon":103.83998,"tenant":1},{"lat":1.30008,"lon":103.84555,"tenant":1},{"lat":1.24455,"lon":103.85899,"tenant":1},{"lat":1.37806,"lon":103.754,"tenant":0},{"lat":1.31799,"lon":103.82424,"tenant":1},{"lat":1.3756,"lon":103.84971,"tenant":1},{"lat":1.39915,"lon":103.88508,"tenant":2},{"lat":1.36908,"lon":103.74866,"tenant":0},{"lat":1.39844,"lon":103.92047,"tenant":2},{"lat":1.29716,"lon":103.78943,"tenant":0},{"lat":1.27177,"lon":103.84466,"tenant":1},{"lat":1.36222,"lon":103.9796,"tenant":3},{"lat":1.36277,"lon":104.01226,"tenant":3},{"lat":1.38275,"lon":103.84102,"tenant":1},{"lat":1.2833,"lon":103.86145,"tenant":1},{"lat":1.343,"lon":103.94911,"tenant":3},{"lat":1.42398,"lon":103.78131,"tenant":0},{"lat":1.29775,"lon":103.85912,"tenant":1}],"hotspots":[{"lat":1.2793,"lon":103.8478},{"lat":1.2834,"lon":103.8607},{"lat":1.3048,"lon":103.8318},{"lat":1.3644,"lon":103.9915},{"lat":1.3333,"lon":103.7436},{"lat":1.437,"lon":103.7867},{"lat":1.3496,"lon":103.9568},{"lat":1.4043,"lon":103.9022},{"lat":1.38,"lon":103.845},{"lat":1.2942,"lon":103.7861}],"coverage":[[0,0,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1],[0,0,1,0,1,0,0,0,0,1],[0,0,0,1,0,0,1,1,0,0],[0,0,0,0,0,1,0,0,0,0],[1,1,1,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,1],[0,0,0,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,1,1],[0,0,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,1],[0,0,0,1,0,0,1,1,0,0],[0,0,0,0,0,1,0,0,0,0],[0,0,0,0,1,1,0,0,0,1],[0,0,0,1,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,0],[1,1,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,1],[0,0,1,0,0,1,0,1,1,0],[0,0,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,1,1,1],[1,1,1,0,0,0,0,0,1,1],[0,0,1,0,0,1,0,1,1,0],[0,0,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,0,0,0],[0,0,1,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[0,0,0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0],[1,1,1,0,1,0,0,0,1,1],[1,1,1,0,1,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[0,0,1,0,1,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0],[0,0,0,0,1,1,0,0,0,0],[1,1,1,0,0,0,0,0,0,1],[0,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,1,0,0,0,1,1],[0,0,1,0,0,1,0,1,1,0],[0,0,0,0,1,0,0,0,0,0],[0,0,1,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[0,0,0,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[0,0,0,0,1,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[1,1,1,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,1,1],[1,1,1,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0],[1,1,1,0,1,0,0,0,1,1],[0,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,0,1,1,0,0],[1,1,1,0,1,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0],[0,0,0,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,1],[0,0,0,1,0,0,1,1,0,0],[0,0,0,0,1,1,0,0,1,0],[1,1,1,0,0,0,0,0,1,1]],"switch":{"lat":1.298,"lon":103.789},"lns":[{"lat":1.259,"lon":103.82,"tenant":0},{"lat":1.265,"lon":103.895,"tenant":1},{"lat":1.28,"lon":103.765,"tenant":2},{"lat":1.27,"lon":103.905,"tenant":3}],"cloud":{"lat":1.238,"lon":103.83},"stats":{"N":100,"K":10,"M":4,"avg_coverage":3.42}},"large":{"label":"Large","sensors":[{"lat":1.37707,"lon":103.99376,"tenant":3},{"lat":1.30391,"lon":103.81832,"tenant":1},{"lat":1.38984,"lon":103.85098,"tenant":1},{"lat":1.28162,"lon":103.86176,"tenant":1},{"lat":1.28388,"lon":103.86429,"tenant":1},{"lat":1.3365,"lon":103.76458,"tenant":0},{"lat":1.37312,"lon":103.95776,"tenant":3},{"lat":1.43294,"lon":103.79455,"tenant":1},{"lat":1.29214,"lon":103.7895,"tenant":0},{"lat":1.28712,"lon":103.83444,"tenant":1},{"lat":1.34755,"lon":103.94082,"tenant":2},{"lat":1.35809,"lon":103.76139,"tenant":0},{"lat":1.38529,"lon":103.88467,"tenant":2},{"lat":1.33218,"lon":103.7389,"tenant":0},{"lat":1.3041,"lon":103.83536,"tenant":1},{"lat":1.30935,"lon":103.83611,"tenant":1},{"lat":1.35424,"lon":104.0045,"tenant":3},{"lat":1.30305,"lon":103.85282,"tenant":1},{"lat":1.35681,"lon":103.98452,"tenant":3},{"lat":1.44357,"lon":103.80007,"tenant":1},{"lat":1.35943,"lon":103.73722,"tenant":0},{"lat":1.37965,"lon":103.96551,"tenant":3},{"lat":1.31077,"lon":103.83337,"tenant":1},{"lat":1.30887,"lon":103.85269,"tenant":1},{"lat":1.37365,"lon":103.85975,"tenant":1},{"lat":1.29007,"lon":103.8556,"tenant":1},{"lat":1.30499,"lon":103.84335,"tenant":1},{"lat":1.29191,"lon":103.82206,"tenant":1},{"lat":1.28805,"lon":103.89132,"tenant":2},{"lat":1.32235,"lon":103.86535,"tenant":1},{"lat":1.26696,"lon":103.83253,"tenant":1},{"lat":1.28972,"lon":103.86413,"tenant":1},{"lat":1.33597,"lon":103.7437,"tenant":0},{"lat":1.39752,"lon":103.84627,"tenant":1},{"lat":1.35213,"lon":103.98824,"tenant":3},{"lat":1.37746,"lon":104.0039,"tenant":3},{"lat":1.33762,"lon":103.85707,"tenant":1},{"lat":1.30041,"lon":103.83178,"tenant":1},{"lat":1.38636,"lon":103.83827,"tenant":1},{"lat":1.35726,"lon":103.98494,"tenant":3},{"lat":1.32771,"lon":103.95127,"tenant":3},{"lat":1.32797,"lon":103.86353,"tenant":1},{"lat":1.29784,"lon":103.83718,"tenant":1},{"lat":1.40271,"lon":103.9064,"tenant":2},{"lat":1.3844,"lon":103.84348,"tenant":1},{"lat":1.3338,"lon":103.87134,"tenant":2},{"lat":1.35981,"lon":103.96746,"tenant":3},{"lat":1.33081,"lon":103.77592,"tenant":0},{"lat":1.28547,"lon":103.87158,"tenant":2},{"lat":1.44039,"lon":103.79988,"tenant":1},{"lat":1.36179,"lon":103.73871,"tenant":0},{"lat":1.32465,"lon":103.86891,"tenant":2},{"lat":1.2791,"lon":103.85727,"tenant":1},{"lat":1.31372,"lon":103.83728,"tenant":1},{"lat":1.31629,"lon":103.82181,"tenant":1},{"lat":1.28042,"lon":103.86559,"tenant":1},{"lat":1.31585,"lon":103.84737,"tenant":1},{"lat":1.31085,"lon":103.74839,"tenant":0},{"lat":1.35175,"lon":103.96226,"tenant":3},{"lat":1.27644,"lon":103.86536,"tenant":1},{"lat":1.41966,"lon":103.74587,"tenant":0},{"lat":1.27185,"lon":103.85408,"tenant":1},{"lat":1.38006,"lon":103.85215,"tenant":1},{"lat":1.31359,"lon":103.86769,"tenant":1},{"lat":1.31151,"lon":103.82728,"tenant":1},{"lat":1.37663,"lon":103.8439,"tenant":1},{"lat":1.38763,"lon":103.72062,"tenant":0},{"lat":1.29735,"lon":103.78168,"tenant":0},{"lat":1.32206,"lon":103.87435,"tenant":2},{"lat":1.25825,"lon":103.87183,"tenant":2},{"lat":1.30644,"lon":103.82211,"tenant":1},{"lat":1.30555,"lon":103.85287,"tenant":1},{"lat":1.33181,"lon":103.7345,"tenant":0},{"lat":1.31383,"lon":103.82949,"tenant":1},{"lat":1.33324,"lon":103.73811,"tenant":0},{"lat":1.30786,"lon":103.74304,"tenant":0},{"lat":1.28326,"lon":103.8466,"tenant":1},{"lat":1.2669,"lon":103.83768,"tenant":1},{"lat":1.31553,"lon":103.84474,"tenant":1},{"lat":1.29674,"lon":103.8248,"tenant":1},{"lat":1.27604,"lon":103.85521,"tenant":1},{"lat":1.29825,"lon":103.7998,"tenant":1},{"lat":1.29651,"lon":103.83998,"tenant":1},{"lat":1.30008,"lon":103.84555,"tenant":1},{"lat":1.24455,"lon":103.85899,"tenant":1},{"lat":1.37806,"lon":103.754,"tenant":0},{"lat":1.31799,"lon":103.82424,"tenant":1},{"lat":1.3756,"lon":103.84971,"tenant":1},{"lat":1.39915,"lon":103.88508,"tenant":2},{"lat":1.36908,"lon":103.74866,"tenant":0},{"lat":1.39844,"lon":103.92047,"tenant":2},{"lat":1.29716,"lon":103.78943,"tenant":0},{"lat":1.27177,"lon":103.84466,"tenant":1},{"lat":1.36222,"lon":103.9796,"tenant":3},{"lat":1.36277,"lon":104.01226,"tenant":3},{"lat":1.38275,"lon":103.84102,"tenant":1},{"lat":1.2833,"lon":103.86145,"tenant":1},{"lat":1.343,"lon":103.94911,"tenant":3},{"lat":1.42398,"lon":103.78131,"tenant":0},{"lat":1.29775,"lon":103.85912,"tenant":1},{"lat":1.35998,"lon":103.8391,"tenant":1},{"lat":1.33736,"lon":103.7503,"tenant":0},{"lat":1.31485,"lon":103.82228,"tenant":1},{"lat":1.38608,"lon":103.84052,"tenant":1},{"lat":1.31453,"lon":103.84123,"tenant":1},{"lat":1.36726,"lon":103.8535,"tenant":1},{"lat":1.29739,"lon":103.83757,"tenant":1},{"lat":1.38,"lon":103.72509,"tenant":0},{"lat":1.27854,"lon":103.83706,"tenant":1},{"lat":1.3,"lon":103.76908,"tenant":0},{"lat":1.34719,"lon":103.97955,"tenant":3},{"lat":1.29303,"lon":103.83072,"tenant":1},{"lat":1.30796,"lon":103.82267,"tenant":1},{"lat":1.30621,"lon":103.82559,"tenant":1},{"lat":1.28242,"lon":103.85783,"tenant":1},{"lat":1.38871,"lon":103.84316,"tenant":1},{"lat":1.32797,"lon":104.0214,"tenant":3},{"lat":1.33927,"lon":103.74065,"tenant":0},{"lat":1.38446,"lon":103.78002,"tenant":0},{"lat":1.31061,"lon":103.83785,"tenant":1},{"lat":1.43009,"lon":103.80682,"tenant":1},{"lat":1.31114,"lon":103.87302,"tenant":2},{"lat":1.3047,"lon":103.83129,"tenant":1},{"lat":1.28027,"lon":103.78267,"tenant":0},{"lat":1.34368,"lon":103.94593,"tenant":3},{"lat":1.27471,"lon":103.83858,"tenant":1},{"lat":1.31125,"lon":103.82008,"tenant":1},{"lat":1.30219,"lon":103.84039,"tenant":1},{"lat":1.28237,"lon":103.8652,"tenant":1},{"lat":1.2932,"lon":103.85575,"tenant":1},{"lat":1.37304,"lon":103.83882,"tenant":1},{"lat":1.34399,"lon":103.74363,"tenant":0},{"lat":1.27445,"lon":103.85438,"tenant":1},{"lat":1.31417,"lon":103.86621,"tenant":1},{"lat":1.33305,"lon":103.85209,"tenant":1},{"lat":1.28967,"lon":103.85514,"tenant":1},{"lat":1.34933,"lon":104.0201,"tenant":3},{"lat":1.34528,"lon":103.9486,"tenant":3},{"lat":1.30998,"lon":103.83283,"tenant":1},{"lat":1.32205,"lon":103.86004,"tenant":1},{"lat":1.28024,"lon":103.85639,"tenant":1},{"lat":1.42728,"lon":103.78712,"tenant":0},{"lat":1.39106,"lon":103.99255,"tenant":3},{"lat":1.36032,"lon":103.96529,"tenant":3},{"lat":1.29096,"lon":103.84402,"tenant":1},{"lat":1.2794,"lon":103.87111,"tenant":2},{"lat":1.32424,"lon":103.84802,"tenant":1},{"lat":1.34373,"lon":103.73204,"tenant":0},{"lat":1.36668,"lon":103.8336,"tenant":1},{"lat":1.3255,"lon":103.85138,"tenant":1},{"lat":1.3795,"lon":103.83253,"tenant":1},{"lat":1.30497,"lon":103.84462,"tenant":1},{"lat":1.33151,"lon":103.95436,"tenant":3},{"lat":1.30988,"lon":103.83525,"tenant":1},{"lat":1.3011,"lon":103.84196,"tenant":1},{"lat":1.28111,"lon":103.86614,"tenant":1},{"lat":1.44923,"lon":103.79313,"tenant":1},{"lat":1.32566,"lon":103.7491,"tenant":0},{"lat":1.29106,"lon":103.85399,"tenant":1},{"lat":1.45076,"lon":103.76535,"tenant":0},{"lat":1.28991,"lon":103.86101,"tenant":1},{"lat":1.36908,"lon":103.93117,"tenant":2},{"lat":1.28326,"lon":103.84939,"tenant":1},{"lat":1.36647,"lon":104.00395,"tenant":3},{"lat":1.28963,"lon":103.86218,"tenant":1},{"lat":1.35647,"lon":103.99762,"tenant":3},{"lat":1.32873,"lon":103.87453,"tenant":2},{"lat":1.26916,"lon":103.85736,"tenant":1},{"lat":1.27593,"lon":103.84274,"tenant":1},{"lat":1.32835,"lon":103.86684,"tenant":1},{"lat":1.2993,"lon":103.84529,"tenant":1},{"lat":1.28357,"lon":103.8437,"tenant":1},{"lat":1.30601,"lon":103.83268,"tenant":1},{"lat":1.34537,"lon":103.74359,"tenant":0},{"lat":1.36893,"lon":103.96586,"tenant":3},{"lat":1.35784,"lon":103.9541,"tenant":3},{"lat":1.28229,"lon":103.8529,"tenant":1},{"lat":1.35407,"lon":103.98656,"tenant":3},{"lat":1.43783,"lon":103.77706,"tenant":0},{"lat":1.3643,"lon":103.98262,"tenant":3},{"lat":1.41037,"lon":103.90083,"tenant":2},{"lat":1.27359,"lon":103.8645,"tenant":1},{"lat":1.28284,"lon":103.79472,"tenant":1},{"lat":1.27418,"lon":103.8321,"tenant":1},{"lat":1.28204,"lon":103.82465,"tenant":1},{"lat":1.36035,"lon":103.77528,"tenant":0},{"lat":1.34172,"lon":103.96806,"tenant":3},{"lat":1.27701,"lon":103.86039,"tenant":1},{"lat":1.407,"lon":103.89668,"tenant":2},{"lat":1.28307,"lon":103.77338,"tenant":0},{"lat":1.41756,"lon":103.79697,"tenant":1},{"lat":1.36703,"lon":103.77344,"tenant":0},{"lat":1.31947,"lon":103.74537,"tenant":0},{"lat":1.43407,"lon":103.81775,"tenant":1},{"lat":1.42727,"lon":103.91611,"tenant":2},{"lat":1.29542,"lon":103.83452,"tenant":1},{"lat":1.29684,"lon":103.86385,"tenant":1},{"lat":1.28352,"lon":103.86865,"tenant":2},{"lat":1.29135,"lon":103.85114,"tenant":1},{"lat":1.32179,"lon":103.8332,"tenant":1},{"lat":1.27714,"lon":103.83415,"tenant":1},{"lat":1.34277,"lon":103.93936,"tenant":2},{"lat":1.32106,"lon":103.85881,"tenant":1},{"lat":1.30266,"lon":103.82461,"tenant":1},{"lat":1.31753,"lon":103.74689,"tenant":0},{"lat":1.28324,"lon":103.85264,"tenant":1},{"lat":1.4357,"lon":103.79877,"tenant":1},{"lat":1.28108,"lon":103.85347,"tenant":1},{"lat":1.33394,"lon":103.73339,"tenant":0},{"lat":1.29361,"lon":103.83323,"tenant":1},{"lat":1.35952,"lon":103.74837,"tenant":0},{"lat":1.28177,"lon":103.8559,"tenant":1},{"lat":1.29161,"lon":103.84912,"tenant":1},{"lat":1.31357,"lon":103.82996,"tenant":1},{"lat":1.45537,"lon":103.80967,"tenant":1},{"lat":1.32819,"lon":103.85319,"tenant":1},{"lat":1.31465,"lon":103.86607,"tenant":1},{"lat":1.28993,"lon":103.84285,"tenant":1},{"lat":1.40016,"lon":103.90518,"tenant":2},{"lat":1.37298,"lon":103.99488,"tenant":3},{"lat":1.31952,"lon":103.79182,"tenant":0},{"lat":1.28054,"lon":103.83148,"tenant":1},{"lat":1.35201,"lon":103.97242,"tenant":3},{"lat":1.30329,"lon":103.87118,"tenant":2},{"lat":1.36382,"lon":103.76702,"tenant":0},{"lat":1.36198,"lon":103.94787,"tenant":3},{"lat":1.30729,"lon":103.84463,"tenant":1},{"lat":1.28112,"lon":103.85201,"tenant":1},{"lat":1.26652,"lon":103.85273,"tenant":1},{"lat":1.30607,"lon":103.84581,"tenant":1},{"lat":1.418,"lon":103.79365,"tenant":1},{"lat":1.29717,"lon":103.77385,"tenant":0},{"lat":1.3798,"lon":103.98383,"tenant":3},{"lat":1.31625,"lon":103.71561,"tenant":0},{"lat":1.41136,"lon":103.9056,"tenant":2},{"lat":1.30474,"lon":103.82012,"tenant":1},{"lat":1.31239,"lon":103.84148,"tenant":1},{"lat":1.45133,"lon":103.78006,"tenant":0},{"lat":1.32225,"lon":103.86502,"tenant":1},{"lat":1.28107,"lon":103.86684,"tenant":1},{"lat":1.29777,"lon":103.84239,"tenant":1},{"lat":1.38208,"lon":103.72442,"tenant":0},{"lat":1.36384,"lon":103.99662,"tenant":3},{"lat":1.33105,"lon":103.96028,"tenant":3},{"lat":1.29918,"lon":103.79695,"tenant":1},{"lat":1.35741,"lon":103.99191,"tenant":3},{"lat":1.27819,"lon":103.87231,"tenant":2},{"lat":1.39469,"lon":103.91974,"tenant":2},{"lat":1.31688,"lon":103.82623,"tenant":1},{"lat":1.32245,"lon":103.74749,"tenant":0},{"lat":1.3118,"lon":103.83009,"tenant":1},{"lat":1.33314,"lon":103.8623,"tenant":1},{"lat":1.32613,"lon":103.74895,"tenant":0},{"lat":1.2838,"lon":103.8481,"tenant":1},{"lat":1.35432,"lon":103.97252,"tenant":3},{"lat":1.28131,"lon":103.79138,"tenant":0},{"lat":1.29281,"lon":103.84504,"tenant":1},{"lat":1.30962,"lon":103.84135,"tenant":1},{"lat":1.36708,"lon":103.77118,"tenant":0},{"lat":1.37466,"lon":103.84632,"tenant":1},{"lat":1.38366,"lon":103.90241,"tenant":2},{"lat":1.3175,"lon":103.88415,"tenant":2},{"lat":1.37065,"lon":103.76644,"tenant":0},{"lat":1.29076,"lon":103.85564,"tenant":1},{"lat":1.38581,"lon":103.83833,"tenant":1},{"lat":1.3235,"lon":103.97225,"tenant":3},{"lat":1.32315,"lon":103.8554,"tenant":1},{"lat":1.28272,"lon":103.81454,"tenant":1},{"lat":1.32666,"lon":103.8745,"tenant":2},{"lat":1.2751,"lon":103.85709,"tenant":1},{"lat":1.31746,"lon":103.8699,"tenant":2},{"lat":1.42847,"lon":103.78161,"tenant":0},{"lat":1.37028,"lon":103.96262,"tenant":3},{"lat":1.44183,"lon":103.77206,"tenant":0},{"lat":1.38375,"lon":103.9458,"tenant":3},{"lat":1.33035,"lon":103.8665,"tenant":1},{"lat":1.35138,"lon":103.71981,"tenant":0},{"lat":1.27577,"lon":103.85909,"tenant":1},{"lat":1.42099,"lon":103.79921,"tenant":1},{"lat":1.2534,"lon":103.85383,"tenant":1},{"lat":1.27983,"lon":103.8485,"tenant":1},{"lat":1.41974,"lon":103.88159,"tenant":2},{"lat":1.27887,"lon":103.8738,"tenant":2},{"lat":1.35204,"lon":103.95427,"tenant":3},{"lat":1.264,"lon":103.82796,"tenant":1},{"lat":1.36972,"lon":103.73613,"tenant":0},{"lat":1.26576,"lon":103.82966,"tenant":1},{"lat":1.27818,"lon":103.84243,"tenant":1},{"lat":1.28168,"lon":103.83822,"tenant":1},{"lat":1.28866,"lon":103.86948,"tenant":2},{"lat":1.33539,"lon":103.73418,"tenant":0},{"lat":1.28887,"lon":103.8357,"tenant":1},{"lat":1.30812,"lon":103.8292,"tenant":1},{"lat":1.31983,"lon":103.87194,"tenant":2},{"lat":1.28654,"lon":103.82349,"tenant":1},{"lat":1.37384,"lon":104.00778,"tenant":3},{"lat":1.27488,"lon":103.85398,"tenant":1},{"lat":1.28339,"lon":103.87809,"tenant":2},{"lat":1.29878,"lon":103.83865,"tenant":1},{"lat":1.29656,"lon":103.82666,"tenant":1},{"lat":1.35993,"lon":103.78447,"tenant":0},{"lat":1.36123,"lon":104.01448,"tenant":3},{"lat":1.36423,"lon":103.98579,"tenant":3},{"lat":1.32976,"lon":103.9923,"tenant":3},{"lat":1.30769,"lon":103.82007,"tenant":1},{"lat":1.27703,"lon":103.85121,"tenant":1},{"lat":1.36014,"lon":103.96553,"tenant":3},{"lat":1.38484,"lon":103.88192,"tenant":2},{"lat":1.35816,"lon":104.00959,"tenant":3},{"lat":1.33268,"lon":103.73669,"tenant":0},{"lat":1.30473,"lon":103.82621,"tenant":1},{"lat":1.25344,"lon":103.83996,"tenant":1},{"lat":1.35426,"lon":103.72801,"tenant":0},{"lat":1.30843,"lon":103.8226,"tenant":1},{"lat":1.34934,"lon":103.94498,"tenant":3},{"lat":1.28466,"lon":103.84627,"tenant":1},{"lat":1.38331,"lon":103.73393,"tenant":0},{"lat":1.393,"lon":103.7452,"tenant":0},{"lat":1.2837,"lon":103.85924,"tenant":1},{"lat":1.31465,"lon":103.7503,"tenant":0},{"lat":1.33875,"lon":103.97454,"tenant":3},{"lat":1.2993,"lon":103.79023,"tenant":0},{"lat":1.28889,"lon":103.83756,"tenant":1},{"lat":1.38071,"lon":103.84891,"tenant":1},{"lat":1.41359,"lon":103.89626,"tenant":2},{"lat":1.29421,"lon":103.87745,"tenant":2},{"lat":1.30164,"lon":103.83199,"tenant":1},{"lat":1.38796,"lon":103.85411,"tenant":1},{"lat":1.36273,"lon":103.94805,"tenant":3},{"lat":1.2832,"lon":103.85549,"tenant":1},{"lat":1.28999,"lon":103.86678,"tenant":1},{"lat":1.28512,"lon":103.86,"tenant":1},{"lat":1.26731,"lon":103.86839,"tenant":1},{"lat":1.42035,"lon":103.91376,"tenant":2},{"lat":1.34543,"lon":103.74151,"tenant":0},{"lat":1.28472,"lon":103.86497,"tenant":1},{"lat":1.3859,"lon":103.90758,"tenant":2},{"lat":1.36168,"lon":103.98936,"tenant":3},{"lat":1.34987,"lon":103.96354,"tenant":3},{"lat":1.3534,"lon":103.75498,"tenant":0},{"lat":1.3078,"lon":103.84956,"tenant":1},{"lat":1.31383,"lon":103.84727,"tenant":1},{"lat":1.28282,"lon":103.84259,"tenant":1},{"lat":1.27927,"lon":103.85523,"tenant":1},{"lat":1.36713,"lon":103.992,"tenant":3},{"lat":1.35047,"lon":103.96827,"tenant":3},{"lat":1.29487,"lon":103.85418,"tenant":1},{"lat":1.31972,"lon":103.85099,"tenant":1},{"lat":1.34337,"lon":103.95628,"tenant":3},{"lat":1.32252,"lon":103.8624,"tenant":1},{"lat":1.36018,"lon":103.94509,"tenant":3},{"lat":1.32311,"lon":103.86263,"tenant":1},{"lat":1.30883,"lon":103.8732,"tenant":2},{"lat":1.32297,"lon":103.86119,"tenant":1},{"lat":1.27643,"lon":103.84502,"tenant":1},{"lat":1.29888,"lon":103.82338,"tenant":1},{"lat":1.3134,"lon":103.83143,"tenant":1},{"lat":1.31676,"lon":103.86041,"tenant":1},{"lat":1.44835,"lon":103.76816,"tenant":0},{"lat":1.34795,"lon":103.94791,"tenant":3},{"lat":1.3211,"lon":103.87342,"tenant":2},{"lat":1.31652,"lon":103.86598,"tenant":1},{"lat":1.27995,"lon":103.8532,"tenant":1},{"lat":1.2826,"lon":103.84572,"tenant":1},{"lat":1.40918,"lon":103.90544,"tenant":2},{"lat":1.44327,"lon":103.76782,"tenant":0},{"lat":1.32253,"lon":103.7382,"tenant":0},{"lat":1.27033,"lon":103.86192,"tenant":1},{"lat":1.36364,"lon":103.94149,"tenant":2},{"lat":1.36023,"lon":103.74286,"tenant":0},{"lat":1.33771,"lon":103.76636,"tenant":0},{"lat":1.31532,"lon":103.84273,"tenant":1},{"lat":1.28412,"lon":103.84898,"tenant":1},{"lat":1.36943,"lon":103.92769,"tenant":2},{"lat":1.3902,"lon":103.88999,"tenant":2},{"lat":1.29627,"lon":103.83807,"tenant":1},{"lat":1.30942,"lon":103.8445,"tenant":1},{"lat":1.30439,"lon":103.83264,"tenant":1},{"lat":1.36982,"lon":103.84049,"tenant":1},{"lat":1.27763,"lon":103.84558,"tenant":1},{"lat":1.35255,"lon":103.97004,"tenant":3},{"lat":1.27573,"lon":103.87119,"tenant":2},{"lat":1.34461,"lon":103.95454,"tenant":3},{"lat":1.28692,"lon":103.86171,"tenant":1},{"lat":1.36114,"lon":104.01775,"tenant":3},{"lat":1.31328,"lon":103.86663,"tenant":1},{"lat":1.36001,"lon":103.96584,"tenant":3},{"lat":1.30129,"lon":103.82244,"tenant":1},{"lat":1.3798,"lon":103.99658,"tenant":3},{"lat":1.3443,"lon":103.74425,"tenant":0},{"lat":1.3083,"lon":103.83705,"tenant":1},{"lat":1.31639,"lon":103.83252,"tenant":1},{"lat":1.26792,"lon":103.86059,"tenant":1},{"lat":1.32815,"lon":103.84624,"tenant":1},{"lat":1.2812,"lon":103.84511,"tenant":1},{"lat":1.29681,"lon":103.83645,"tenant":1},{"lat":1.31499,"lon":103.7324,"tenant":0},{"lat":1.28448,"lon":103.86192,"tenant":1},{"lat":1.30788,"lon":103.81996,"tenant":1},{"lat":1.40919,"lon":103.8995,"tenant":2},{"lat":1.40503,"lon":103.91952,"tenant":2},{"lat":1.31385,"lon":103.86927,"tenant":2},{"lat":1.28128,"lon":103.86543,"tenant":1},{"lat":1.32811,"lon":103.87213,"tenant":2},{"lat":1.36963,"lon":103.85939,"tenant":1},{"lat":1.40809,"lon":103.89344,"tenant":2},{"lat":1.28372,"lon":103.86321,"tenant":1},{"lat":1.34506,"lon":103.95007,"tenant":3},{"lat":1.32783,"lon":103.95761,"tenant":3},{"lat":1.32158,"lon":103.96612,"tenant":3},{"lat":1.32129,"lon":103.72677,"tenant":0},{"lat":1.37561,"lon":103.84049,"tenant":1},{"lat":1.27136,"lon":103.85142,"tenant":1},{"lat":1.31262,"lon":103.8355,"tenant":1},{"lat":1.30251,"lon":103.83272,"tenant":1},{"lat":1.42732,"lon":103.91425,"tenant":2},{"lat":1.3927,"lon":103.89197,"tenant":2},{"lat":1.30497,"lon":103.85698,"tenant":1},{"lat":1.36095,"lon":103.85123,"tenant":1},{"lat":1.3565,"lon":104.00992,"tenant":3},{"lat":1.28363,"lon":103.84993,"tenant":1},{"lat":1.37035,"lon":103.8595,"tenant":1},{"lat":1.32318,"lon":103.87084,"tenant":2},{"lat":1.2755,"lon":103.86477,"tenant":1},{"lat":1.27361,"lon":103.85481,"tenant":1},{"lat":1.27842,"lon":103.87102,"tenant":2},{"lat":1.34671,"lon":103.95296,"tenant":3},{"lat":1.27574,"lon":103.83896,"tenant":1},{"lat":1.42133,"lon":103.75771,"tenant":0},{"lat":1.37273,"lon":103.85759,"tenant":1},{"lat":1.26392,"lon":103.87326,"tenant":2},{"lat":1.4234,"lon":103.80021,"tenant":1},{"lat":1.291,"lon":103.79424,"tenant":1},{"lat":1.35709,"lon":103.93894,"tenant":2},{"lat":1.40291,"lon":103.88248,"tenant":2},{"lat":1.31426,"lon":103.85433,"tenant":1},{"lat":1.28053,"lon":103.86501,"tenant":1},{"lat":1.31245,"lon":103.82845,"tenant":1},{"lat":1.30662,"lon":103.83454,"tenant":1},{"lat":1.42226,"lon":103.91545,"tenant":2},{"lat":1.40699,"lon":103.89979,"tenant":2},{"lat":1.28378,"lon":103.85595,"tenant":1},{"lat":1.29032,"lon":103.87516,"tenant":2},{"lat":1.35244,"lon":103.94951,"tenant":3},{"lat":1.27449,"lon":103.86788,"tenant":1},{"lat":1.29942,"lon":103.83433,"tenant":1},{"lat":1.33435,"lon":103.96187,"tenant":3},{"lat":1.30764,"lon":103.82235,"tenant":1},{"lat":1.38303,"lon":103.92547,"tenant":2},{"lat":1.35973,"lon":103.75252,"tenant":0},{"lat":1.26545,"lon":103.85668,"tenant":1},{"lat":1.40655,"lon":103.89547,"tenant":2},{"lat":1.2958,"lon":103.8176,"tenant":1},{"lat":1.3534,"lon":103.76219,"tenant":0},{"lat":1.39948,"lon":103.92373,"tenant":2},{"lat":1.30807,"lon":103.82895,"tenant":1},{"lat":1.28808,"lon":103.85859,"tenant":1},{"lat":1.31877,"lon":103.86557,"tenant":1},{"lat":1.27197,"lon":103.84769,"tenant":1},{"lat":1.3678,"lon":103.7522,"tenant":0},{"lat":1.30113,"lon":103.77505,"tenant":0},{"lat":1.35654,"lon":103.96493,"tenant":3},{"lat":1.40194,"lon":103.8955,"tenant":2},{"lat":1.43573,"lon":103.78722,"tenant":0},{"lat":1.27859,"lon":103.87056,"tenant":2},{"lat":1.33103,"lon":103.7242,"tenant":0},{"lat":1.27729,"lon":103.85767,"tenant":1},{"lat":1.26373,"lon":103.8581,"tenant":1},{"lat":1.33498,"lon":103.87882,"tenant":2},{"lat":1.34886,"lon":103.74559,"tenant":0},{"lat":1.3094,"lon":103.83928,"tenant":1},{"lat":1.36538,"lon":104.01015,"tenant":3},{"lat":1.40165,"lon":104.0165,"tenant":3},{"lat":1.26756,"lon":103.84547,"tenant":1},{"lat":1.35781,"lon":103.74568,"tenant":0},{"lat":1.30332,"lon":103.84018,"tenant":1},{"lat":1.31707,"lon":103.83342,"tenant":1},{"lat":1.28235,"lon":103.84811,"tenant":1},{"lat":1.34851,"lon":103.94516,"tenant":3},{"lat":1.26173,"lon":103.84153,"tenant":1},{"lat":1.28134,"lon":103.83461,"tenant":1},{"lat":1.42093,"lon":103.76518,"tenant":0},{"lat":1.28111,"lon":103.8347,"tenant":1},{"lat":1.30929,"lon":103.83343,"tenant":1},{"lat":1.2903,"lon":103.84193,"tenant":1},{"lat":1.36042,"lon":103.74735,"tenant":0},{"lat":1.35402,"lon":103.96819,"tenant":3},{"lat":1.35737,"lon":103.94808,"tenant":3},{"lat":1.26512,"lon":103.86637,"tenant":1},{"lat":1.35974,"lon":103.9489,"tenant":3},{"lat":1.35475,"lon":103.75036,"tenant":0},{"lat":1.27814,"lon":103.78415,"tenant":0},{"lat":1.45253,"lon":103.79704,"tenant":1},{"lat":1.39332,"lon":103.89897,"tenant":2},{"lat":1.27476,"lon":103.8391,"tenant":1},{"lat":1.34251,"lon":104.00383,"tenant":3},{"lat":1.29704,"lon":103.86548,"tenant":1},{"lat":1.28901,"lon":103.86062,"tenant":1},{"lat":1.37486,"lon":103.74835,"tenant":0},{"lat":1.34561,"lon":104.01599,"tenant":3}],"hotspots":[{"lat":1.2793,"lon":103.8478},{"lat":1.2834,"lon":103.8607},{"lat":1.3048,"lon":103.8318},{"lat":1.3644,"lon":103.9915},{"lat":1.3333,"lon":103.7436},{"lat":1.437,"lon":103.7867},{"lat":1.3496,"lon":103.9568},{"lat":1.4043,"lon":103.9022},{"lat":1.38,"lon":103.845},{"lat":1.2942,"lon":103.7861},{"lat":1.32,"lon":103.8635},{"lat":1.37,"lon":103.75},{"lat":1.315,"lon":103.89},{"lat":1.34,"lon":103.72},{"lat":1.42,"lon":103.838},{"lat":1.33,"lon":103.93},{"lat":1.36,"lon":103.82},{"lat":1.26,"lon":103.82},{"lat":1.305,"lon":103.9},{"lat":1.356,"lon":103.982}],"coverage":[[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,1,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[0,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1,0,0,0],[0,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,1,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,0,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[0,0,0,0,0,1,0,0,1,0,0,1,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,1,0,1,0,0,0,0,1,0,1,0,1,0,0,1,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,1,1,0,0,1,0,0,1,0,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,1,0,0,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,0,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,1,1,0],[0,0,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[0,0,1,0,0,1,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,1,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,1,0,0,0,0,0,1,0,1,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,1,0,0,0,1,1,1,1,0,1,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[0,0,0,0,0,0,1,1,1,0,1,0,1,0,1,1,0,0,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,1,0,0,0,0,0,1,0,0,1,0,0,0,0,0],[0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,1],[0,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,1,0,1,1,0,0,1,1,0,1,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,0,0,1,1,0,1,0,1,0,1,1,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,1,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,0,1],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,1,1,0,1,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,1,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,0,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]],"switch":{"lat":1.298,"lon":103.789},"lns":[{"lat":1.259,"lon":103.82,"tenant":0},{"lat":1.265,"lon":103.895,"tenant":1},{"lat":1.28,"lon":103.765,"tenant":2},{"lat":1.27,"lon":103.905,"tenant":3}],"cloud":{"lat":1.238,"lon":103.83},"stats":{"N":500,"K":20,"M":4,"avg_coverage":5.39}},"singapore":{"label":"Singapore","sensors":[{"lat":1.28476,"lon":103.86607,"tenant":1},{"lat":1.30513,"lon":103.82497,"tenant":1},{"lat":1.27991,"lon":103.85045,"tenant":1},{"lat":1.2848,"lon":103.78673,"tenant":0},{"lat":1.37156,"lon":104.02945,"tenant":3},{"lat":1.27531,"lon":103.86951,"tenant":1},{"lat":1.26892,"lon":103.82802,"tenant":1},{"lat":1.29151,"lon":103.85708,"tenant":1},{"lat":1.33665,"lon":103.95935,"tenant":3},{"lat":1.30952,"lon":103.83209,"tenant":1},{"lat":1.35586,"lon":103.7469,"tenant":0},{"lat":1.35622,"lon":103.82644,"tenant":1},{"lat":1.28676,"lon":103.8805,"tenant":2},{"lat":1.2828,"lon":103.83221,"tenant":1},{"lat":1.38793,"lon":103.74341,"tenant":0},{"lat":1.29051,"lon":103.84978,"tenant":1},{"lat":1.41624,"lon":103.90888,"tenant":2},{"lat":1.27891,"lon":103.84899,"tenant":1},{"lat":1.27876,"lon":103.85982,"tenant":1},{"lat":1.35802,"lon":103.95986,"tenant":3},{"lat":1.295,"lon":103.84047,"tenant":1},{"lat":1.27804,"lon":103.84156,"tenant":1},{"lat":1.28818,"lon":103.83555,"tenant":1},{"lat":1.33923,"lon":103.94844,"tenant":2},{"lat":1.28313,"lon":103.85363,"tenant":1},{"lat":1.28346,"lon":103.85428,"tenant":1},{"lat":1.3363,"lon":103.71522,"tenant":0},{"lat":1.4222,"lon":103.91843,"tenant":2},{"lat":1.2867,"lon":103.85214,"tenant":1},{"lat":1.34197,"lon":103.7469,"tenant":0},{"lat":1.2865,"lon":103.85254,"tenant":1},{"lat":1.28127,"lon":103.86358,"tenant":1},{"lat":1.39558,"lon":103.83682,"tenant":1},{"lat":1.27772,"lon":103.86338,"tenant":1},{"lat":1.35653,"lon":103.97875,"tenant":3},{"lat":1.37859,"lon":103.8374,"tenant":1},{"lat":1.34509,"lon":103.94804,"tenant":2},{"lat":1.30483,"lon":103.82812,"tenant":1},{"lat":1.28865,"lon":103.85914,"tenant":1},{"lat":1.33531,"lon":103.85116,"tenant":1},{"lat":1.32028,"lon":103.95059,"tenant":2},{"lat":1.31008,"lon":103.82555,"tenant":1},{"lat":1.35441,"lon":103.98208,"tenant":3},{"lat":1.32691,"lon":103.95909,"tenant":3},{"lat":1.34986,"lon":103.99797,"tenant":3},{"lat":1.3708,"lon":103.85847,"tenant":1},{"lat":1.37463,"lon":103.9889,"tenant":3},{"lat":1.37521,"lon":104.01418,"tenant":3},{"lat":1.36299,"lon":103.95543,"tenant":3},{"lat":1.30892,"lon":103.82543,"tenant":1},{"lat":1.28996,"lon":103.86789,"tenant":1},{"lat":1.27375,"lon":103.86444,"tenant":1},{"lat":1.36091,"lon":103.97659,"tenant":3},{"lat":1.28662,"lon":103.87507,"tenant":2},{"lat":1.42132,"lon":103.79063,"tenant":0},{"lat":1.34597,"lon":103.96895,"tenant":3},{"lat":1.35042,"lon":103.95933,"tenant":3},{"lat":1.27464,"lon":103.8626,"tenant":1},{"lat":1.28671,"lon":103.79042,"tenant":0},{"lat":1.34971,"lon":103.7368,"tenant":0},{"lat":1.30571,"lon":103.80392,"tenant":1},{"lat":1.34318,"lon":103.96156,"tenant":3},{"lat":1.32329,"lon":103.8677,"tenant":1},{"lat":1.32825,"lon":103.84967,"tenant":1},{"lat":1.28761,"lon":103.8591,"tenant":1},{"lat":1.30345,"lon":103.84341,"tenant":1},{"lat":1.36475,"lon":103.85885,"tenant":1},{"lat":1.27534,"lon":103.78858,"tenant":0},{"lat":1.37337,"lon":103.84599,"tenant":1},{"lat":1.28003,"lon":103.86109,"tenant":1},{"lat":1.27369,"lon":103.86009,"tenant":1},{"lat":1.28247,"lon":103.84907,"tenant":1},{"lat":1.32181,"lon":103.72786,"tenant":0},{"lat":1.2881,"lon":103.87106,"tenant":1},{"lat":1.28822,"lon":103.85027,"tenant":1},{"lat":1.30494,"lon":103.82652,"tenant":1},{"lat":1.28096,"lon":103.85188,"tenant":1},{"lat":1.35552,"lon":103.96216,"tenant":3},{"lat":1.29886,"lon":103.84044,"tenant":1},{"lat":1.29465,"lon":103.82673,"tenant":1},{"lat":1.36703,"lon":103.98469,"tenant":3},{"lat":1.35968,"lon":103.95831,"tenant":3},{"lat":1.29374,"lon":103.85827,"tenant":1},{"lat":1.3806,"lon":104.02303,"tenant":3},{"lat":1.42051,"lon":103.76881,"tenant":0},{"lat":1.36157,"lon":103.9965,"tenant":3},{"lat":1.28021,"lon":103.85659,"tenant":1},{"lat":1.28827,"lon":103.85684,"tenant":1},{"lat":1.36975,"lon":103.74795,"tenant":0},{"lat":1.28209,"lon":103.857,"tenant":1},{"lat":1.35089,"lon":103.97082,"tenant":3},{"lat":1.35334,"lon":103.95302,"tenant":3},{"lat":1.4219,"lon":103.88469,"tenant":2},{"lat":1.34172,"lon":103.96487,"tenant":3},{"lat":1.27257,"lon":103.85394,"tenant":1},{"lat":1.29865,"lon":103.83922,"tenant":1},{"lat":1.34771,"lon":103.9632,"tenant":3},{"lat":1.28928,"lon":103.86439,"tenant":1},{"lat":1.35847,"lon":104.00631,"tenant":3},{"lat":1.30568,"lon":103.8297,"tenant":1},{"lat":1.3917,"lon":103.89174,"tenant":2},{"lat":1.39609,"lon":103.99567,"tenant":3},{"lat":1.29803,"lon":103.83816,"tenant":1},{"lat":1.38186,"lon":103.85828,"tenant":1},{"lat":1.37442,"lon":103.76825,"tenant":0},{"lat":1.26956,"lon":103.84255,"tenant":1},{"lat":1.34189,"lon":103.74553,"tenant":0},{"lat":1.38397,"lon":103.85341,"tenant":1},{"lat":1.36951,"lon":103.76711,"tenant":0},{"lat":1.29345,"lon":103.86096,"tenant":1},{"lat":1.34276,"lon":103.85186,"tenant":1},{"lat":1.27153,"lon":103.84203,"tenant":1},{"lat":1.28309,"lon":103.84519,"tenant":1},{"lat":1.32128,"lon":103.87776,"tenant":2},{"lat":1.30938,"lon":103.82418,"tenant":1},{"lat":1.30598,"lon":103.8272,"tenant":1},{"lat":1.43725,"lon":103.81738,"tenant":1},{"lat":1.29873,"lon":103.82085,"tenant":1},{"lat":1.32775,"lon":103.8535,"tenant":1},{"lat":1.29426,"lon":103.8297,"tenant":1},{"lat":1.28072,"lon":103.86017,"tenant":1},{"lat":1.30548,"lon":103.82373,"tenant":1},{"lat":1.30526,"lon":103.82968,"tenant":1},{"lat":1.2853,"lon":103.85076,"tenant":1},{"lat":1.2772,"lon":103.85694,"tenant":1},{"lat":1.29384,"lon":103.7979,"tenant":1},{"lat":1.30428,"lon":103.82742,"tenant":1},{"lat":1.28714,"lon":103.86669,"tenant":1},{"lat":1.28876,"lon":103.83816,"tenant":1},{"lat":1.28088,"lon":103.86412,"tenant":1},{"lat":1.39539,"lon":103.91061,"tenant":2},{"lat":1.29864,"lon":103.8397,"tenant":1},{"lat":1.35761,"lon":103.95789,"tenant":3},{"lat":1.29621,"lon":103.82133,"tenant":1},{"lat":1.28422,"lon":103.84783,"tenant":1},{"lat":1.27669,"lon":103.83815,"tenant":1},{"lat":1.27071,"lon":103.86918,"tenant":1},{"lat":1.35797,"lon":103.95106,"tenant":3},{"lat":1.44073,"lon":103.77477,"tenant":0},{"lat":1.30927,"lon":103.82911,"tenant":1},{"lat":1.31625,"lon":103.84284,"tenant":1},{"lat":1.36515,"lon":104.01093,"tenant":3},{"lat":1.29489,"lon":103.86227,"tenant":1},{"lat":1.26714,"lon":103.86093,"tenant":1},{"lat":1.30618,"lon":103.81248,"tenant":1},{"lat":1.41025,"lon":103.80326,"tenant":1},{"lat":1.31434,"lon":103.83152,"tenant":1},{"lat":1.33755,"lon":103.73813,"tenant":0},{"lat":1.30521,"lon":103.82846,"tenant":1},{"lat":1.28419,"lon":103.78909,"tenant":0}],"hotspots":[{"lat":1.2793,"lon":103.8478},{"lat":1.2834,"lon":103.8607},{"lat":1.3048,"lon":103.8318},{"lat":1.3644,"lon":103.9915},{"lat":1.3333,"lon":103.7436},{"lat":1.437,"lon":103.7867},{"lat":1.3496,"lon":103.9568},{"lat":1.4043,"lon":103.9022},{"lat":1.38,"lon":103.845},{"lat":1.2942,"lon":103.7861},{"lat":1.32,"lon":103.8635},{"lat":1.37,"lon":103.75},{"lat":1.315,"lon":103.89},{"lat":1.34,"lon":103.72},{"lat":1.42,"lon":103.838},{"lat":1.33,"lon":103.93},{"lat":1.36,"lon":103.82},{"lat":1.26,"lon":103.82},{"lat":1.305,"lon":103.9},{"lat":1.356,"lon":103.982}],"coverage":[[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,1,0,1,1,0,0,0,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,1,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,1,0,0,1,0,1,1,0,1,1,1,0,1,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0],[1,1,1,0,1,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[0,0,1,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,0,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,1,1,1,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,0,0,1,1,0,1,0,1,0,1,0,1,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,1,0,0,0,0,1,0,1,0,1,0,0,1,0,0,0],[0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,1,0,0,0],[0,0,0,0,1,1,0,0,1,1,0,1,0,1,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,1,1,1,1,0],[0,1,1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,1,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,1,1,1,1,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,1,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,1,0,0,1,1],[1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[0,0,0,1,0,0,1,1,0,0,0,0,1,0,0,1,0,0,1,1],[0,0,0,0,0,1,0,0,0,0,0,1,0,0,1,0,0,0,0,0],[1,1,1,0,1,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1,0],[0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1,1,0],[1,1,1,0,1,0,0,0,0,1,1,0,1,0,0,0,1,1,0,0],[0,0,0,0,0,1,0,0,1,0,0,1,0,0,1,0,1,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[0,0,0,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,1,1,0],[1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0]],"switch":{"lat":1.298,"lon":103.789},"lns":[{"lat":1.259,"lon":103.82,"tenant":0},{"lat":1.265,"lon":103.895,"tenant":1},{"lat":1.28,"lon":103.765,"tenant":2},{"lat":1.27,"lon":103.905,"tenant":3}],"cloud":{"lat":1.238,"lon":103.83},"stats":{"N":150,"K":20,"M":4,"avg_coverage":6.42}}};
+const COLORS  = ["#38bdf8","#fbbf24","#4ade80","#f87171"];
+const TNAMES  = ["Helium","TTN","AWS IoT","Actility"];
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+const map = L.map('map',{center:[1.3521,103.8198],zoom:12});
+// CartoDB light — no labels, very faint: keeps focus on nodes
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',{
+  attribution:'© OpenStreetMap contributors, © CARTO',opacity:.28,maxZoom:19
+}).addTo(map);
+// Faint label overlay just for major area names
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png',{
+  attribution:'',opacity:.18,maxZoom:19,pane:'overlayPane'
+}).addTo(map);
+
+const baseLayer  = L.layerGroup().addTo(map);
+const animLayer  = L.layerGroup().addTo(map);
+const pulseLayer = L.layerGroup().addTo(map);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let cfg=null, playing=false, spd=1, timer=null;
+let stats={ev:0,fwd:0,sup:0};
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function selectCfg(key){
+  ['small','medium','large','singapore'].forEach(k=>{
+    document.getElementById('btn-'+k).classList.toggle('active',k===key);
+  });
+  cfg=CONFIGS[key];
+  renderBase();
+  renderLegend();
+  setStatus('loaded','Config: '+cfg.label+
+    ` — N=${cfg.stats.N}, K=${cfg.stats.K}, M=${cfg.stats.M}, avg coverage=${cfg.stats.avg_coverage}×`);
+  if(playing) stopAnim();
+  resetStats();
+}
+
+function togglePlay(){
+  if(!cfg){setStatus('','Select a config first.');return;}
+  playing?stopAnim():startAnim();
+}
+
+function startAnim(){
+  playing=true;
+  document.getElementById('play-btn').textContent='⏸ Pause';
+  document.getElementById('play-btn').classList.add('playing');
+  document.getElementById('status-dot').classList.add('active');
+  next();
+}
+
+function stopAnim(){
+  playing=false;
+  clearTimeout(timer);
+  document.getElementById('play-btn').textContent='▶ Play';
+  document.getElementById('play-btn').classList.remove('playing');
+  document.getElementById('status-dot').classList.remove('active');
+  animLayer.clearLayers();
+  pulseLayer.clearLayers();
+  hideDedup();
+}
+
+function setSpeed(s,btn){
+  spd=s;
+  document.querySelectorAll('.spd').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function setStatus(state,msg){
+  document.getElementById('status-txt').textContent=msg;
+}
+
+function resetStats(){
+  stats={ev:0,fwd:0,sup:0};
+  ['ev','fwd','sup'].forEach(k=>{
+    const el=document.getElementById('s-'+k);
+    el.textContent='0'; el.classList.add('dim');
+  });
+  const sv=document.getElementById('s-sav');
+  sv.textContent='—'; sv.classList.add('dim');
+}
+
+function tick(){
+  stats.ev++;
+  const total=stats.fwd+stats.sup;
+  const pct=total>0?(stats.sup/total*100).toFixed(1)+'%':'—';
+  document.getElementById('s-ev').textContent=stats.ev;
+  document.getElementById('s-fwd').textContent=stats.fwd;
+  document.getElementById('s-sup').textContent=stats.sup;
+  document.getElementById('s-sav').textContent=pct;
+  ['ev','fwd','sup','sav'].forEach(k=>
+    document.getElementById('s-'+k).classList.remove('dim'));
+}
+
+function renderLegend(){
+  const m=cfg.lns.length;
+  document.getElementById('leg-tenants').innerHTML=
+    Array.from({length:m},(_,i)=>
+      `<div class="leg">
+        <div class="leg-dot" style="background:${COLORS[i]}"></div>
+        Tenant ${i} (${TNAMES[i]||'LNS-'+i})
+      </div>`
+    ).join('');
+}
+
+// ── Dedup popup ───────────────────────────────────────────────────────────────
+function showDedup(n){
+  const sw=cfg.switch;
+  const pt=map.latLngToContainerPoint([sw.lat,sw.lon]);
+  const el=document.getElementById('dedup-pop');
+  el.style.left=pt.x+'px';
+  el.style.top=pt.y+'px';
+  el.textContent='×'+n+' suppressed';
+  el.style.display='block';
+  clearTimeout(el._t);
+  el._t=setTimeout(hideDedup, 900/spd);
+}
+function hideDedup(){
+  document.getElementById('dedup-pop').style.display='none';
+}
+
+// ── Base layer ────────────────────────────────────────────────────────────────
+function mkIcon(html,w,h){
+  return L.divIcon({className:'',html,iconSize:[w,h],iconAnchor:[w/2,h/2]});
+}
+
+function renderBase(){
+  baseLayer.clearLayers();
+
+  // Sensors — larger circles
+  const sR = cfg.stats.N > 200 ? 5 : 8;
+  cfg.sensors.forEach((s,i)=>{
+    const c=COLORS[s.tenant%COLORS.length];
+    L.circleMarker([s.lat,s.lon],{
+      radius:sR, color:'#0f172a', fillColor:c,
+      fillOpacity:.9, weight:1.2, opacity:1,
+    }).bindTooltip(`ED ${i} · Tenant ${s.tenant} (${TNAMES[s.tenant]||'?'})`,{sticky:true})
+      .addTo(baseLayer);
+  });
+
+  // Hotspots — larger hexagon
+  cfg.hotspots.forEach((h,i)=>{
+    L.marker([h.lat,h.lon],{icon:mkIcon(
+      `<svg width="26" height="26" viewBox="0 0 26 26">
+        <polygon points="13,2 22,7 22,19 13,24 4,19 4,7"
+          fill="#1e293b" stroke="#94a3b8" stroke-width="2"/>
+        <circle cx="13" cy="13" r="4" fill="#cbd5e1"/>
+        <text x="13" y="17" text-anchor="middle" fill="#1e293b"
+          font-size="7" font-weight="800" font-family="monospace">GW</text>
+      </svg>`,26,26)})
+      .bindTooltip(`GW ${i}`,{sticky:true})
+      .addTo(baseLayer);
+  });
+
+  // P4 Switch — larger diamond
+  const sw=cfg.switch;
+  L.marker([sw.lat,sw.lon],{icon:mkIcon(
+    `<div style="position:relative;width:46px;height:46px">
+      <div style="position:absolute;inset:4px;background:#1e3a5f;border:3px solid #3b82f6;
+        border-radius:6px;transform:rotate(45deg);box-shadow:0 0 12px #3b82f688"></div>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;
+        justify-content:center;color:#60a5fa;font-size:11px;font-weight:900;
+        letter-spacing:-0.03em;text-shadow:0 0 8px #3b82f6">P4</div>
+    </div>`,46,46),zIndexOffset:1000})
+    .bindTooltip('<b>FeBEx IXP Switch</b><br>P4 dedup · tenant steering · receipt mirror',{sticky:true})
+    .addTo(baseLayer);
+
+  // LNS servers — bigger badges
+  cfg.lns.forEach((l,i)=>{
+    const c=COLORS[i%COLORS.length];
+    L.marker([l.lat,l.lon],{icon:mkIcon(
+      `<div style="background:${c}25;border:2px solid ${c};border-radius:4px;
+        width:52px;height:24px;display:flex;align-items:center;justify-content:center;
+        font-size:10px;color:${c};font-weight:800;letter-spacing:0.03em;
+        box-shadow:0 0 8px ${c}44">LNS-${i}</div>`,52,24),zIndexOffset:500})
+      .bindTooltip(`LNS ${i}: ${TNAMES[i]||'Tenant '+i}`,{sticky:true})
+      .addTo(baseLayer);
+  });
+
+  // Cloud — larger icon
+  L.marker([cfg.cloud.lat,cfg.cloud.lon],{icon:mkIcon(
+    `<div style="font-size:30px;line-height:1;filter:drop-shadow(0 0 8px #a855f7)">☁</div>`,
+    36,28),zIndexOffset:500})
+    .bindTooltip('Helium Cloud (PoC receipts)',{sticky:true})
+    .addTo(baseLayer);
+}
+
+// ── Animation helpers ─────────────────────────────────────────────────────────
+function wait(ms){
+  return new Promise(r=>{timer=setTimeout(r,Math.round(ms/spd))});
+}
+
+function drawLine(from,to,color,weight,opacity,dash){
+  const line=L.polyline([[from.lat,from.lon],[to.lat,to.lon]],{
+    color,weight,opacity:0,dashArray:dash||null,lineCap:'round',
+  }).addTo(animLayer);
+
+  requestAnimationFrame(()=>{
+    const p=line._path;
+    if(p){
+      try{
+        const len=p.getTotalLength();
+        p.style.strokeDasharray=len+' '+len;
+        p.style.strokeDashoffset=len;
+        const dur=Math.round(380/spd);
+        p.style.transition=`stroke-dashoffset ${dur}ms ease, opacity ${Math.round(180/spd)}ms`;
+        requestAnimationFrame(()=>{
+          line.setStyle({opacity});
+          p.style.strokeDashoffset=0;
+        });
+      }catch(e){line.setStyle({opacity});}
+    }else{line.setStyle({opacity});}
+  });
+  return line;
+}
+
+function fadeLines(lines){
+  lines.forEach(l=>{
+    const p=l._path;
+    if(p){p.style.transition=`opacity ${Math.round(300/spd)}ms`;p.style.opacity=0;}
+  });
+  return wait(320).then(()=>lines.forEach(l=>{
+    try{animLayer.removeLayer(l);}catch(e){}
+  }));
+}
+
+function pulse(lat,lon,color){
+  const m=L.marker([lat,lon],{
+    icon:L.divIcon({className:'',
+      html:`<div class="pulse-ring" style="border-color:${color};box-shadow:0 0 8px ${color}99"></div>`,
+      iconSize:[40,40],iconAnchor:[20,20]}),
+    zIndexOffset:2000,
+  }).addTo(pulseLayer);
+  setTimeout(()=>{try{pulseLayer.removeLayer(m);}catch(e){}},1350);
+}
+
+// ── Event loop ────────────────────────────────────────────────────────────────
+async function runEvent(){
+  if(!playing||!cfg) return;
+
+  // Pick a random sensor with at least one covering hotspot
+  const n=cfg.sensors.length;
+  let si, covered;
+  for(let t=0;t<30;t++){
+    si=Math.floor(Math.random()*n);
+    covered=cfg.coverage[si].map((v,i)=>v?i:-1).filter(i=>i>=0);
+    if(covered.length>0) break;
+  }
+  if(!covered||covered.length===0){next();return;}
+
+  const s=cfg.sensors[si];
+  const sc=COLORS[s.tenant%COLORS.length];
+  const sw=cfg.switch;
+
+  // 1 — Sensor emits
+  pulse(s.lat,s.lon,sc);
+  setStatus('active',`ED ${si} transmitting (Tenant ${s.tenant} · ${TNAMES[s.tenant]||'?'}) — ${covered.length} GW(s) in range`);
+  await wait(420);
+  if(!playing) return;
+
+  // 2 — Sensor → Hotspots
+  const gwLines=covered.map(gi=>{
+    const g=cfg.hotspots[gi];
+    return drawLine(s,g,'#94a3b8',2.5,.7,'7 4');
+  });
+  await wait(480);
+  if(!playing) return;
+
+  // 3 — Hotspots → Switch
+  const swLines=covered.map(gi=>{
+    const g=cfg.hotspots[gi];
+    return drawLine(g,sw,'#60a5fa',4,.9);
+  });
+  await wait(480);
+  if(!playing) return;
+
+  // 4 — Dedup at switch
+  const nSup=covered.length-1;
+  if(nSup>0){
+    showDedup(nSup);
+    swLines.slice(1).forEach(l=>l.setStyle({color:'#ef4444',opacity:.45,dashArray:'5 8',weight:2.5}));
+    stats.sup+=nSup;
+    await wait(380);
+    if(!playing) return;
+  }
+
+  // 5 — Switch → correct LNS
+  const lns=cfg.lns[s.tenant%cfg.lns.length];
+  const lnsLine=drawLine(sw,lns,'#4ade80',5,.95);
+
+  // 6 — Receipt → cloud (dashed bright violet)
+  const rcLine=drawLine(sw,cfg.cloud,'#c084fc',3,.8,'5 5');
+
+  stats.fwd++;
+  tick();
+
+  setStatus('active',
+    `Switch: ${covered.length} copies → ${nSup>0?nSup+' suppressed, ':''}1 forwarded → `+
+    `LNS-${s.tenant} + receipt to cloud`);
+
+  await wait(750);
+  if(!playing) return;
+
+  await fadeLines([...gwLines,...swLines,lnsLine,rcLine]);
+  next();
+}
+
+function next(){
+  if(!playing) return;
+  timer=setTimeout(runEvent,Math.round(180/spd));
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+selectCfg('singapore');
+</script>
+</body>
+</html>
