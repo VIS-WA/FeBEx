@@ -1,193 +1,120 @@
 {
-  "E1": {
-    "1.0": {
-      "savings": 0.25179104477611935,
-      "pkts_off": 6700,
-      "pkts_on": 5013
+  "E9": {
+    "V1": {
+      "1024": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "128": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "16": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "256": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "32": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "64": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "65536": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "8": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      }
     },
-    "10.0": {
-      "savings": 0.8617188376528666,
-      "pkts_off": 35652,
-      "pkts_on": 4930
-    },
-    "2.0": {
-      "savings": 0.5625751072961374,
-      "pkts_off": 11650,
-      "pkts_on": 5096
-    },
-    "3.0": {
-      "savings": 0.6665584415584416,
-      "pkts_off": 15400,
-      "pkts_on": 5135
-    },
-    "5.0": {
-      "savings": 0.7785283018867925,
-      "pkts_off": 26500,
-      "pkts_on": 5869
-    },
-    "7.0": {
-      "savings": 0.8318279569892473,
-      "pkts_off": 32550,
-      "pkts_on": 5474
-    }
-  },
-  "E2": {
-    "1.0": {
-      "delivery_ratio": 1.0,
-      "unique_received": 5000
-    },
-    "10.0": {
-      "delivery_ratio": 0.8902,
-      "unique_received": 4451
-    },
-    "2.0": {
-      "delivery_ratio": 1.0,
-      "unique_received": 5000
-    },
-    "3.0": {
-      "delivery_ratio": 1.0,
-      "unique_received": 5000
-    },
-    "5.0": {
-      "delivery_ratio": 1.0,
-      "unique_received": 5000
-    },
-    "7.0": {
-      "delivery_ratio": 1.0,
-      "unique_received": 5000
-    }
-  },
-  "E3": {
-    "isolated": true,
-    "violations": 0,
-    "total": 5071
-  },
-  "E4": {
-    "N100_K10": {
-      "savings": 0.6701948051948052,
-      "throughput": 682.3603145782242,
-      "pkts_on": 5079
-    },
-    "N200_K20": {
-      "savings": 0.5701253918495297,
-      "throughput": 1033.812038521399,
-      "pkts_on": 13713
-    },
-    "N500_K50": {
-      "savings": 0.6201619769041018,
-      "throughput": 885.044459171531,
-      "pkts_on": 17400
-    },
-    "N50_K5": {
-      "savings": 0.6551724137931034,
-      "throughput": 345.3915364577623,
-      "pkts_on": 2500
-    }
-  },
-  "E5": {
-    "1024": {
-      "savings": 0.6207792207792208,
-      "leakage_rate": 0.08076923076923077,
-      "leaked_dups": 840,
-      "expected_dups": 10400,
-      "unique_received": 5000,
-      "total_received": 5840
-    },
-    "16384": {
-      "savings": 0.6709090909090909,
-      "leakage_rate": 0.006538461538461538,
-      "leaked_dups": 68,
-      "expected_dups": 10400,
-      "unique_received": 5000,
-      "total_received": 5068
-    },
-    "256": {
-      "savings": 0.41214285714285714,
-      "leakage_rate": 0.38971153846153844,
-      "leaked_dups": 4053,
-      "expected_dups": 10400,
-      "unique_received": 5000,
-      "total_received": 9053
-    },
-    "4096": {
-      "savings": 0.6662987012987013,
-      "leakage_rate": 0.013365384615384616,
-      "leaked_dups": 139,
-      "expected_dups": 10400,
-      "unique_received": 5000,
-      "total_received": 5139
-    },
-    "65536": {
-      "savings": 0.6703896103896103,
-      "leakage_rate": 0.007307692307692308,
-      "leaked_dups": 76,
-      "expected_dups": 10400,
-      "unique_received": 5000,
-      "total_received": 5076
-    }
-  },
-  "E6": {
-    "0.5": {
-      "savings": 0.5677272727272727,
-      "total_received": 6657,
-      "unique_received": 5000
-    },
-    "10.0": {
-      "savings": 0.6753246753246753,
-      "total_received": 5000,
-      "unique_received": 5000
-    },
-    "1.0": {
-      "savings": 0.6301948051948052,
-      "total_received": 5695,
-      "unique_received": 5000
-    },
-    "2.0": {
-      "savings": 0.6548051948051947,
-      "total_received": 5316,
-      "unique_received": 5000
-    },
-    "30.0": {
-      "savings": 0.6753246753246753,
-      "total_received": 5000,
-      "unique_received": 5000
-    },
-    "5.0": {
-      "savings": 0.6686363636363637,
-      "total_received": 5103,
-      "unique_received": 5000
-    }
-  },
-  "E7": {
-    "total_receipts": 1021,
-    "valid_gw_id": 1021,
-    "accuracy": 1.0,
-    "match_rate": 1.0
-  },
-  "E8": {
-    "V1_single_epoch": {
-      "savings": 0.7769182389937107,
-      "delivery_ratio": 1.0,
-      "leaked_dups": 547,
-      "total_received": 3547,
-      "unique_received": 3000,
-      "off_baseline": 15900
-    },
-    "V2_sliding_window": {
-      "savings": 0.8113207547169812,
-      "delivery_ratio": 1.0,
-      "leaked_dups": 0,
-      "total_received": 3000,
-      "unique_received": 3000,
-      "off_baseline": 15900
-    },
-    "V3_dual_register": {
-      "savings": 0.7830817610062893,
-      "delivery_ratio": 1.0,
-      "leaked_dups": 449,
-      "total_received": 3449,
-      "unique_received": 3000,
-      "off_baseline": 15900
+    "V3": {
+      "1024": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "128": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "16": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "256": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "32": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "64": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "65536": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      },
+      "8": {
+        "fp_count": 56,
+        "false_positive_rate": 0.018666666666666668,
+        "delivery_ratio": 0.9813333333333333,
+        "unique_received": 2944,
+        "total_expected": 3000
+      }
     }
   }
 }

@@ -119,14 +119,16 @@ control FeBExIngress(
             );
 
             // Second independent hash → key_value for slot verification.
-            // base=1 ensures key_value in [1, 0xFFFFFFFE], avoiding collision
-            // with the zero-initialised register on the very first lookup.
+            // Range [1, KEY_HASH_MAX]: base=1 avoids 0 (zero-init register conflict).
+            // Production: KEY_HASH_MAX=0xFFFFFFFE (~2^32, false positives negligible).
+            // Stress test: -DKEY_HASH_MAX=16 collapses to 4-bit key space so
+            // false positives occur frequently and are empirically measurable.
             hash(
                 meta.key_value,
                 HashAlgorithm.crc32,
                 (bit<32>)1,
                 { meta.tenant_id, hdr.febex.dev_addr, hdr.febex.fcnt },
-                (bit<32>)0xFFFFFFFE
+                (bit<32>)KEY_HASH_MAX
             );
 
             bit<32> stored_key;

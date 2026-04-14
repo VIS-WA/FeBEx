@@ -767,6 +767,145 @@ def eval_e8():
     return results
 
 
+def plot_e9(results_v1, results_v3):
+    """
+    Two-panel plot: false-positive rate and delivery ratio vs KEY_HASH_MAX (log x-axis).
+
+    KEY_HASH_MAX is the key-value hash space size used at compile time.
+    Smaller = more key collisions = more false positives (unique uplinks suppressed).
+
+    V1 false positive prob ~ N / KEY_HASH_MAX
+    V3 false positive prob ~ (N / KEY_HASH_MAX)^2  (AND of two independent hashes)
+
+    Panel 1 — False-positive rate % (V1 should be clearly above V3 at small KEY_HASH_MAX)
+    Panel 2 — Delivery ratio        (V3 should stay closer to 1.0)
+    """
+    if not HAS_MPL or (not results_v1 and not results_v3):
+        return
+
+    xs_v1 = sorted(results_v1.keys())
+    xs_v3 = sorted(results_v3.keys())
+
+    fp_v1  = [results_v1[x]["false_positive_rate"] * 100 for x in xs_v1]
+    fp_v3  = [results_v3[x]["false_positive_rate"] * 100 for x in xs_v3]
+    dr_v1  = [results_v1[x]["delivery_ratio"]           for x in xs_v1]
+    dr_v3  = [results_v3[x]["delivery_ratio"]           for x in xs_v3]
+    fp_cnt_v1 = [results_v1[x]["fp_count"] for x in xs_v1]
+    fp_cnt_v3 = [results_v3[x]["fp_count"] for x in xs_v3]
+
+    V1_COLOR = "#d62728"
+    V3_COLOR = "#ff7f0e"
+    fig, axes = plt.subplots(1, 2, figsize=(13, 6))
+
+    # ── Panel 1: False-positive rate % ──────────────────────────────────
+    ax = axes[0]
+    ax.semilogx(xs_v1, fp_v1, "o-", color=V1_COLOR,
+                label="V1 (single hash)  ~N/K", linewidth=2.5, markersize=9)
+    ax.semilogx(xs_v3, fp_v3, "s-", color=V3_COLOR,
+                label="V3 (Bloom AND)  ~(N/K)²", linewidth=2.5, markersize=9)
+    # Annotate with exact suppressed counts
+    for x, y, c in zip(xs_v1, fp_v1, fp_cnt_v1):
+        ax.annotate(f"{c}", (x, y), textcoords="offset points",
+                    xytext=(0, 8), ha="center", fontsize=8, color=V1_COLOR)
+    for x, y, c in zip(xs_v3, fp_v3, fp_cnt_v3):
+        ax.annotate(f"{c}", (x, y), textcoords="offset points",
+                    xytext=(0, -14), ha="center", fontsize=8, color=V3_COLOR)
+    ax.axhline(y=0, color="green", linestyle="--", linewidth=1.5,
+               label="Target: 0%")
+    ax.set_title("False-Positive Rate %\n(unique uplinks incorrectly suppressed)")
+    ax.set_xlabel("KEY_HASH_MAX — key-value space size (log scale)\nsmaller = more collisions")
+    ax.set_ylabel("False-positive rate (%)")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    all_fp = fp_v1 + fp_v3
+    top_fp = max(all_fp) if all_fp else 1
+    ax.set_ylim(-0.5, max(top_fp * 1.4, 2))
+
+    # ── Panel 2: Delivery ratio ──────────────────────────────────────────
+    ax = axes[1]
+    ax.semilogx(xs_v1, dr_v1, "o-", color=V1_COLOR,
+                label="V1 (single hash)", linewidth=2.5, markersize=9)
+    ax.semilogx(xs_v3, dr_v3, "s-", color=V3_COLOR,
+                label="V3 (Bloom AND)", linewidth=2.5, markersize=9)
+    ax.axhline(y=1.0, color="green", linestyle="--", linewidth=1.5,
+               label="Target: 1.0 (no loss)")
+    ax.set_title("Delivery Ratio\n(V3 stays closer to 1.0 under key collision stress)")
+    ax.set_xlabel("KEY_HASH_MAX — key-value space size (log scale)\nsmaller = more collisions")
+    ax.set_ylabel("Delivery ratio")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    all_dr = dr_v1 + dr_v3
+    ax.set_ylim(max(min(all_dr) * 0.97, 0), 1.03)
+
+    fig.suptitle("E9: V1 vs V3 False-Positive Suppression\n"
+                 "Stress test: KEY_HASH_MAX narrows key space to force measurable collisions  "
+                 "(N=100, regsize=65536, epoch=60s)",
+                 fontsize=11)
+    fig.tight_layout()
+    save_plot(fig, "E9_false_positive_comparison")
+
+
+def eval_e9():
+    """E9: False-positive suppression — V1 vs V3, swept over KEY_HASH_MAX."""
+    base = RESULTS_DIR / "E9"
+    if not base.exists():
+        print("  E9: No results found, skipping")
+        return
+
+    results_v1 = {}
+    results_v3 = {}
+
+    for point_dir in sorted(base.iterdir()):
+        if not point_dir.is_dir():
+            continue
+        name = point_dir.name  # e.g. "khmax16_V1"
+        if not name.startswith("khmax"):
+            continue
+
+        try:
+            parts   = name.split("_V")
+            khmax   = int(parts[0].replace("khmax", ""))
+            variant = int(parts[1])
+        except (IndexError, ValueError):
+            continue
+
+        on_logs  = load_lns_logs(point_dir / "dedup_ON" / "logs")
+        cfg_path = point_dir / "config.yaml"
+        point_cfg = yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
+
+        unique   = unique_uplinks(on_logs)
+        n_unique = len(unique)
+
+        N       = point_cfg.get("topology", {}).get("num_edge_devices", 0)
+        uplinks = point_cfg.get("workload", {}).get("uplinks_per_device", 0)
+        total_expected = N * uplinks if N > 0 and uplinks > 0 else n_unique
+
+        fp_count            = max(0, total_expected - n_unique)
+        false_positive_rate = fp_count / total_expected if total_expected > 0 else 0.0
+        delivery_ratio      = 1.0 - false_positive_rate
+
+        entry = {
+            "fp_count":            fp_count,
+            "false_positive_rate": false_positive_rate,
+            "delivery_ratio":      delivery_ratio,
+            "unique_received":     n_unique,
+            "total_expected":      total_expected,
+        }
+
+        if variant == 1:
+            results_v1[khmax] = entry
+        elif variant == 3:
+            results_v3[khmax] = entry
+
+        print(f"  khmax={khmax:6d} V{variant}: "
+              f"expected={total_expected} received={n_unique} "
+              f"fp_count={fp_count} fp_rate={false_positive_rate:.4f} "
+              f"delivery={delivery_ratio:.4f}")
+
+    plot_e9(results_v1, results_v3)
+    return {"V1": results_v1, "V3": results_v3}
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
@@ -780,6 +919,7 @@ EVALUATORS = {
     "E6": ("Epoch Interval Sensitivity", eval_e6),
     "E7": ("Payment Receipt Accuracy", eval_e7),
     "E8": ("Epoch-Boundary Leakage — Variant Comparison", eval_e8),
+    "E9": ("False-Positive Suppression — V1 vs V3", eval_e9),
 }
 
 

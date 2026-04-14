@@ -9,6 +9,9 @@
 #define DEDUP_TABLE_SIZE 65536
 #endif
 
+// Key-value hash space. Default 2^32 (negligible false positives).
+// Override: -DKEY_HASH_MAX=16 for stress-test (4-bit key, frequent collisions).
+
 typedef bit<9>  port_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;

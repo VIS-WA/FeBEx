@@ -91,7 +91,7 @@ control FeBExIngress(
                  (bit<32>)DEDUP_TABLE_SIZE);
             hash(meta.key_value, HashAlgorithm.crc32, (bit<32>)1,
                  { meta.tenant_id, hdr.febex.dev_addr, hdr.febex.fcnt },
-                 (bit<32>)0xFFFFFFFE);
+                 (bit<32>)KEY_HASH_MAX);
 
             // Secondary: index hash seed=2, key hash seed=3
             hash(meta.dedup_index2, HashAlgorithm.crc32, (bit<32>)2,
@@ -99,7 +99,7 @@ control FeBExIngress(
                  (bit<32>)DEDUP_TABLE_SIZE);
             hash(meta.key_value2, HashAlgorithm.crc32, (bit<32>)3,
                  { meta.tenant_id, hdr.febex.dev_addr, hdr.febex.fcnt },
-                 (bit<32>)0xFFFFFFFE);
+                 (bit<32>)KEY_HASH_MAX);
 
             bit<32> stored_key;
             bit<16> stored_epoch;

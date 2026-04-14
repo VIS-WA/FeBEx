@@ -314,6 +314,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;display:flex;height:100vh;backg
   <div class="sec">Playback</div>
   <button id="play-btn" onclick="togglePlay()">▶ Play</button>
   <div class="speed-row">
+    <button class="spd"       onclick="setSpeed(0.25,this)">¼×</button>
     <button class="spd"       onclick="setSpeed(0.5,this)">½×</button>
     <button class="spd active" onclick="setSpeed(1,this)">1×</button>
     <button class="spd"       onclick="setSpeed(2,this)">2×</button>

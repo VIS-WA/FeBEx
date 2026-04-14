@@ -110,7 +110,7 @@ def run_orchestrator(cfg, results_dir, dedup, with_cloud=True, epoch_interval=No
     return result.returncode == 0
 
 
-def recompile_p4_variant(variant: int, dedup_size=None):
+def recompile_p4_variant(variant: int, dedup_size=None, key_hash_max=None):
     """Compile a specific dedup variant (1/2/3) into build/p4/febex.json."""
     src_map = {
         1: "tasks/febex/p4/febex.p4",
@@ -118,8 +118,8 @@ def recompile_p4_variant(variant: int, dedup_size=None):
         3: "tasks/febex/p4/febex_v3.p4",
     }
     src = src_map.get(variant, src_map[1])
-    extra = [f"DEDUP_SIZE={dedup_size}"] if dedup_size else []
-    print(f"\n  Compiling P4 variant V{variant} ({src})...", flush=True)
+    print(f"\n  Compiling P4 variant V{variant} ({src})"
+          f"{f' KEY_HASH_MAX={key_hash_max}' if key_hash_max else ''}...", flush=True)
     cmd = [MAKE, "-C", str(REPO_DIR), "build-clean", "build-init"]
     subprocess.run(cmd, capture_output=True)
 
@@ -131,6 +131,8 @@ def recompile_p4_variant(variant: int, dedup_size=None):
     ]
     if dedup_size:
         p4c_args.insert(1, f"-DDEDUP_TABLE_SIZE={dedup_size}")
+    if key_hash_max:
+        p4c_args.insert(1, f"-DKEY_HASH_MAX={key_hash_max}")
     result = subprocess.run(p4c_args, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"  Compile FAILED: {result.stderr}", file=sys.stderr)
@@ -440,6 +442,76 @@ def run_e8(quick=False):
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════
+#  E9: False-positive suppression — V1 vs V3 at small register sizes
+# ═══════════════════════════════════════════════════════════════════════
+
+def run_e9(quick=False):
+    """
+    False-positive suppression: V1 (single array) vs V3 (Bloom AND).
+
+    A false positive occurs when a UNIQUE uplink is incorrectly suppressed
+    because its key_value hash collides with a different device's entry in
+    the same register slot.
+
+    With the production 32-bit key_value (KEY_HASH_MAX=0xFFFFFFFE), collisions
+    are astronomically rare.  To make false positives empirically observable,
+    this experiment compiles with a deliberately narrow KEY_HASH_MAX — reducing
+    the key space so collisions happen frequently.
+
+    V1: suppress if stored_key == key_value  (single 32-bit check)
+        False positive prob per packet ~ N / KEY_HASH_MAX
+
+    V3: suppress if BOTH arrays match (AND logic, two independent key hashes)
+        False positive prob per packet ~ (N / KEY_HASH_MAX)^2
+        This is the measurable benefit of V3.
+
+    Sweep KEY_HASH_MAX from 8 (3-bit, very frequent) to 65536 (16-bit, rare).
+    Register size is fixed large (65536) so slot overwrites are not a confound —
+    only key_value collisions drive false positives here.
+
+    Expected trend:
+      KEY_HASH_MAX=8:   V1 ~N/8 fp rate (high), V3 ~(N/8)^2 (much higher separation)
+      KEY_HASH_MAX=256: V1 moderate, V3 near-zero
+      KEY_HASH_MAX=65536: both converge to zero
+    """
+    print("\n" + "=" * 60)
+    print("  E9: False-Positive Suppression — V1 vs V3 (Bloom AND)")
+    print("=" * 60)
+
+    # Sweep key hash space size (smaller = more collisions = more false positives)
+    sweep = [8, 64, 256] if quick else [8, 16, 32, 64, 128, 256, 1024, 65536]
+    base_dir = RESULTS_DIR / "E9"
+
+    # Large register (no slot-overwrite confound), high N to maximise collision rate,
+    # long epoch (no boundary-leakage confound), moderate traffic
+    cfg = make_cfg(N=100, K=10, M=2, avg_cov=3.0,
+                   uplinks=10 if quick else 30, inter_ms=100,
+                   register_size=65536, epoch_s=60.0)
+
+    cov = generate_coverage(cfg, seed=42)
+
+    for khmax in sweep:
+        for variant in [1, 3]:
+            label = f"khmax{khmax}_V{variant}"
+            point_dir = base_dir / label
+            point_dir.mkdir(parents=True, exist_ok=True)
+
+            cfg_copy = copy.deepcopy(cfg)
+            (point_dir / "config.yaml").write_text(yaml.dump(cfg_copy))
+            (point_dir / "coverage.json").write_text(json.dumps(cov, indent=2))
+
+            if not recompile_p4_variant(variant, key_hash_max=khmax):
+                print(f"  Skipping khmax={khmax} V{variant} due to compile failure")
+                continue
+
+            run_orchestrator(cfg_copy, point_dir, dedup=True, with_cloud=False,
+                             variant=variant)
+
+    # Restore default V1 build (full 32-bit key)
+    recompile_p4()
+
+
 EXPERIMENTS = {
     "E1": run_e1,
     "E2": run_e2,
@@ -449,6 +521,7 @@ EXPERIMENTS = {
     "E6": run_e6,
     "E7": run_e7,
     "E8": run_e8,
+    "E9": run_e9,
 }
 
 
@@ -457,7 +530,7 @@ def main():
         print(f"Must run as root: sudo {PYTHON} {__file__}", file=sys.stderr)
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(description="FeBEx full experiment suite (E1-E7)")
+    parser = argparse.ArgumentParser(description="FeBEx full experiment suite (E1-E9)")
     parser.add_argument("--experiments", nargs="+",
                         choices=list(EXPERIMENTS.keys()),
                         default=list(EXPERIMENTS.keys()),
