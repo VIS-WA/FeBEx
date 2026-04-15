@@ -2,14 +2,17 @@
 """
 FeBEx Full Experiment Suite (E1-E7)
 ====================================
-Runs all seven experiments described in the spec (Section 11).
+Runs the seven official experiments described in the spec (Section 11).
 Each experiment sweeps one or more parameters and runs the orchestrator
 for dedup ON and dedup OFF configurations.
 
 Results are saved to results/E{N}/... directories.
 
+Note: E9 is available for additional variant trials but is not part of the
+official evaluation suite.
+
 Usage:
-    # Run all experiments:
+    # Run all official experiments:
     sudo python3 run_all.py
 
     # Run specific experiments:

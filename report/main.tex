@@ -1,0 +1,59 @@
+\documentclass[manuscript,nonacm, anonymous]{acmart}
+
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{url}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{graphicx}
+
+\usepackage[]{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+\usepackage{balance}
+
+% enable page numbers
+\settopmatter{printfolios=true}
+
+\newcommand{\fakeparagraph}[1]{\vspace{.5mm}\noindent\textbf{#1.}}
+\newcommand{\fakepar}[1]{\fakeparagraph{#1}}
+
+\begin{document}
+
+\title{FeBEx: In-Network Deduplication for LoRaWAN Backhaul Using P4 Programmable Switches}
+
+\begin{abstract}
+LoRaWAN and Helium networks solve the last-mile connectivity problem for IoT devices, but their fundamental architecture creates a critical inefficiency: when a device broadcasts, multiple geographically distributed gateways independently forward the same packet through backhaul to cloud backends. This redundancy, essential for reliability, multiplies backhaul traffic and cost.
+
+We present FeBEx, a P4-programmable aggregation switch that moves deduplication from cloud backends to the network edge. FeBEx implements register-based deduplication with epoch-driven expiry, integrated with Longest-Prefix-Match tenant steering and packet cloning for Proof-of-Coverage attribution. Through comprehensive evaluation on Mininet-BMv2, we demonstrate that FeBEx achieves 50-90\% backhaul bandwidth savings while maintaining perfect delivery ratio (no false suppressions), 100\% multi-tenant isolation, and accurate payment attribution. We provide practical guidelines: register size $\geq 4N$, epoch intervals of 5-10 seconds, and validate effectiveness across city-scale deployments (50-500 devices, 5-50 gateways). This work demonstrates that edge-based deduplication is viable, effective, and ready for deployment on production P4 switches.
+\end{abstract}
+
+\maketitle
+
+\input{sections/intro}
+
+\input{sections/related}
+
+\input{sections/background}
+
+\input{sections/design}
+
+\input{sections/implementation}
+
+\input{sections/evaluation}
+
+\input{sections/results}
+
+\input{sections/discussion}
+
+\input{sections/conclusion}
+
+\appendix
+\input{sections/appendix}
+
+% use the ACM bibliography style
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

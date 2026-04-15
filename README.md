@@ -20,9 +20,14 @@ FeBEx/
 │       ├── run_experiment.py      # Single-experiment runner
 │       ├── evaluate.py            # Result aggregation/metrics
 │       ├── visualize_network.py   # Coverage visualization utility
+│       ├── visualize_singapore.py # Interactive Singapore map dashboard
 │       └── test_febex.py          # FeBEx integration test script
 ├── results/                       # Generated experiment outputs
-└── plots/                         # Generated figures
+├── plots/                         # Generated figures (including dashboard)
+├── misc/                          # Development documentation
+│   ├── PROGRESS.md                # Project status and development log
+│   └── FeBEx_Implementation_Spec.md  # Design specification
+└── ...
 ```
 
 ## Setup
@@ -57,7 +62,7 @@ make run-tests-febex
 ## Run experiments and evaluate
 
 ```bash
-# Run all experiments (E1-E7)
+# Run all official experiments (E1-E7)
 make run-experiments
 
 # Quick mode (reduced sweep points)
@@ -78,4 +83,30 @@ make generate-coverage CONFIG=tasks/febex/configs/medium_city.yaml OUTPUT=covera
 
 # Visualize a coverage file
 make visualize COVERAGE=coverage.json
+
+# Interactive Singapore map dashboard
+make visualize-singapore
 ```
+
+## Interactive Dashboard
+
+FeBEx includes an interactive **Singapore map visualization** that animates the deduplication process in real-time:
+
+```bash
+make visualize-singapore
+```
+
+This generates `plots/singapore_map.html` — an interactive dashboard showing:
+- **Four city-scale scenarios** (Small, Medium, Large, Singapore realistic network)
+- **Live packet animation**: sensors emit → hotspots relay → P4 switch deduplicates → LNS receives + cloud mirrors
+- **Dedup visualization**: duplicate copies highlighted in red when suppressed
+- **Live metrics**: event count, packets forwarded, packets suppressed, backhaul savings %
+- **Playback controls**: ▶/⏸ play, adjustable speed (¼×, ½×, 1×, 2×, 4×)
+
+Open the HTML in any modern web browser (requires internet for map tiles). Use the left sidebar to switch configs and adjust playback speed.
+
+## Project Development
+
+This repository was developed with assistance from AI tools (Claude Code). Implementation, testing, and evaluation remain the work of the project team.
+
+For detailed project history and development notes, see `misc/PROGRESS.md` and `misc/FeBEx_Implementation_Spec.md`.

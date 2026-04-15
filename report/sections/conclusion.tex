@@ -1,0 +1,80 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper presents FeBEx, a P4-programmable in-network deduplication system for LoRaWAN and Helium backhaul networks. We demonstrate that moving deduplication from cloud backends to an aggregation switch can achieve substantial backhaul bandwidth savings (50-90\%) while maintaining correctness, multi-tenancy isolation, and Proof-of-Coverage accuracy.
+
+\subsection{Summary of Contributions}
+
+\begin{enumerate}
+    \item \textbf{Complete P4 implementation}: A production-ready P4-16 pipeline (febex.p4) that performs packet deduplication using register-based state and epoch-driven expiry, integrated with tenant steering and receipt cloning.
+
+    \item \textbf{Comprehensive evaluation}: Seven experiments (E1-E7) that systematically validate correctness, measure backhaul savings, explore register sizing, tune epoch intervals, and verify scalability and multi-tenancy.
+
+    \item \textbf{Practical design guidelines}: Evidence-based recommendations for register sizing ($\geq 4N$), epoch intervals (5-10 seconds), and deployment parameters based on real experimental data.
+
+    \item \textbf{Open-source framework}: A complete Mininet-based evaluation framework (traffic generators, receivers, metrics collectors) that enables reproducible research and future extensions.
+
+    \item \textbf{Interactive visualization}: A real-time dashboard that animates the deduplication process across city-scale scenarios, aiding understanding and debugging.
+\end{enumerate}
+
+\subsection{Key Results}
+
+\begin{enumerate}
+    \item \textbf{E1: Backhaul savings scale predictably} — From 25\% at 1× redundancy to 86\% at 10×, approaching theoretical limits.
+
+    \item \textbf{E2: Correctness is perfect} — Delivery ratio remains 1.0 (no false suppressions) across all load conditions, up to BMv2 saturation.
+
+    \item \textbf{E3: Multi-tenancy works transparently} — Four independent tenants achieve 100\% isolation with zero cross-contamination.
+
+    \item \textbf{E4: Scalability to city-scale networks} — Consistent 60-70\% savings across 50-500 device deployments.
+
+    \item \textbf{E5: Register sizing matters critically} — $\geq 4N$ provides <1\% duplicate leakage; smaller registers suffer exponential degradation.
+
+    \item \textbf{E6: Epochs eliminate boundary leakage} — 5-10 second intervals minimize stale-entry boundary crossing.
+
+    \item \textbf{E7: Attribution is preserved} — Cloning maintains perfect 1:1 correspondence for Proof-of-Coverage payment.
+\end{enumerate}
+
+\subsection{Impact and Significance}
+
+This work demonstrates that \textit{in-network deduplication at the edge is viable, effective, and practical}. By moving a CPU-bound cloud operation into a data plane switch, we achieve:
+
+\begin{itemize}
+    \item \textbf{Bandwidth savings}: 50-90\% reduction in backhaul traffic, directly lowering deployment costs.
+    \item \textbf{Latency reduction}: First packet reaches backend immediately, without cloud dedup delay.
+    \item \textbf{Operational simplicity}: Centralized control (one switch) vs. distributed (multiple gateways or endpoints).
+    \item \textbf{Proof-of-Coverage preservation}: Cloning maintains attribution accuracy, critical for incentivized networks like Helium.
+\end{itemize}
+
+For IoT network operators, this work provides a blueprint for deploying edge-based deduplication to unlock bandwidth and cost savings. For networking researchers, it validates that P4 registers can be used effectively for sophisticated stateful forwarding decisions beyond simple packet counting.
+
+\subsection{Closing Remarks}
+
+FeBEx is positioned at the intersection of three important trends in networking:
+
+\begin{enumerate}
+    \item \textbf{Growth of IoT}: LoRaWAN, NB-IoT, and other LPWA technologies are expanding rapidly. Backhaul efficiency is critical for economics.
+
+    \item \textbf{Programmable infrastructure}: P4 and similar domain-specific languages are democratizing switch programming, enabling rapid prototyping of novel services.
+
+    \item \textbf{Edge intelligence}: Computing is moving from centralized clouds toward distributed edge networks. In-network processing is a natural extension of this trend.
+\end{enumerate}
+
+FeBEx exemplifies all three: it addresses a real IoT problem using programmable switch infrastructure and demonstrates the benefits of edge-based processing.
+
+The evaluation provided here, though conducted on a software simulator, validates the core idea and provides practical guidelines for deployment. We encourage future work to (1) validate on production hardware, (2) integrate with real LoRaWAN networks, and (3) extend to multi-switch hierarchical topologies.
+
+\subsection{Reproducibility and Availability}
+
+This project is open source and available on GitHub: \texttt{https://github.com/VIS-WA/FeBEx}
+
+The repository includes:
+\begin{itemize}
+    \item Complete P4 source code (febex.p4, headers.p4, parser.p4).
+    \item Python controller and evaluation framework.
+    \item Mininet topology and test scripts.
+    \item Configuration files for all experiments.
+    \item This research report and presentation slides.
+\end{itemize}
+
+All code, data, and configuration files are provided to enable reproducibility and enable other researchers to build on this work.

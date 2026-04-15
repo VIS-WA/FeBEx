@@ -1,0 +1,69 @@
+\section{Reproducibility and Commands}
+\label{sec:appendix-commands}
+
+This appendix lists the primary build, run, and experiment commands used in this project.
+
+\subsection{VM Image}
+
+A prebuilt VM image for this project is available at:
+\begin{center}
+\url{https://nusu-my.sharepoint.com/:u:/g/personal/e1498124_u_nus_edu/IQCQhWoPrGzNQ6RUXvJJ9Re8AT6TT63cnfj5lIY_ROQTy24}
+\end{center}
+
+\subsection{Core Build and Run Commands}
+
+\begin{verbatim}
+# Build default FeBEx switch (V1)
+make build-febex
+
+# Build boundary-leakage mitigation variants
+make build-febex-v2
+make build-febex-v3
+
+# Run demo topology + controller
+make run-febex
+
+# Run automated switch tests
+make run-tests-febex
+\end{verbatim}
+
+\subsection{Experiment and Evaluation Commands}
+
+\begin{verbatim}
+# Run complete experiment suite
+make run-experiments
+
+# Run quick sweep
+make run-experiments-quick
+
+# Run one experiment only (example: E1)
+make run-experiment-e1
+
+# Evaluate logs and generate plots
+make evaluate
+\end{verbatim}
+
+\subsection{Coverage and Visualization Commands}
+
+\begin{verbatim}
+# Generate coverage matrix from YAML config
+make generate-coverage \
+  CONFIG=tasks/febex/configs/medium_city.yaml \
+  OUTPUT=coverage.json
+
+# Visualize coverage matrix
+make visualize COVERAGE=coverage.json
+
+# Generate Singapore interactive map visualization
+make visualize-singapore
+\end{verbatim}
+
+\subsection{Cleanup Commands}
+
+\begin{verbatim}
+# Stop and clean runtime artifacts
+make run-clean
+
+# Full cleanup (runtime + build)
+make clean
+\end{verbatim}

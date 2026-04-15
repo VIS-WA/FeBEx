@@ -18,6 +18,3 @@ dist/
 # OS / editor noise
 .DS_Store
 Thumbs.db
-
-# Local experiment or generated presentation artifacts
-presentations/slidev-evals/evaluations.pptx

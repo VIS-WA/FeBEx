@@ -1,0 +1,104 @@
+\section{Implementation}
+\label{sec:implementation}
+
+This section summarizes the FeBEx implementation at a high level, focusing on packet-processing flow rather than code-level details.
+
+\subsection{Components}
+
+FeBEx is implemented with three components:
+\begin{itemize}
+    \item \textbf{P4 data plane} (BMv2, v1model): parses FeBEx metadata, performs tenant steering, deduplication, and receipt cloning.
+    \item \textbf{P4Runtime controller} (Python + finsy): installs LPM tenant rules, configures clone session, and rotates epochs.
+    \item \textbf{Experiment harness} (Mininet + Scapy): generates traffic, captures outputs, and computes metrics.
+\end{itemize}
+
+\subsection{Switch Pipeline Flow}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.94\linewidth}{
+\textbf{Switch Ingress Flow (high-level)}\\[1mm]
+\textit{Parse packet} (Ethernet/IPv4/UDP/FeBExMeta)\\
+$\downarrow$\\
+\textit{Tenant steering} (LPM on DevAddr $\rightarrow$ select tenant egress port)\\
+$\downarrow$\\
+\textit{Dedup check} (hash index + key, compare with register state + epoch)\\
+$\downarrow$\\
+\textbf{Duplicate?}\\
+No $\rightarrow$ update register, forward to tenant, clone receipt to cloud\\
+Yes $\rightarrow$ drop packet
+}}
+\caption{FeBEx switch pipeline at implementation level.}
+\label{fig:impl-switch-flow}
+\end{figure}
+
+\subsection{Controller Flow}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.94\linewidth}{
+\textbf{Controller Lifecycle (high-level)}\\[1mm]
+Connect via P4Runtime\\
+$\downarrow$\\
+Load P4 pipeline + install tenant LPM entries\\
+$\downarrow$\\
+Set dedup mode and register defaults\\
+$\downarrow$\\
+Configure clone session (session 100 $\rightarrow$ cloud port)\\
+$\downarrow$\\
+Run periodic epoch rotation thread (every configured interval)
+}}
+\caption{Controller behavior used in all experiments.}
+\label{fig:impl-controller-flow}
+\end{figure}
+
+\subsection{Deduplication State Design}
+
+FeBEx keeps only compact state in registers:
+\begin{itemize}
+    \item \texttt{dedup\_keys[index]}: 32-bit verification key.
+    \item \texttt{dedup\_epochs[index]}: 16-bit epoch when slot was written.
+    \item \texttt{current\_epoch[0]}: controller-rotated epoch value.
+    \item \texttt{dedup\_enabled[0]}: runtime A/B toggle for ON/OFF comparisons.
+\end{itemize}
+
+This design avoids expensive per-device state while preserving line-rate-friendly lookup and update operations.
+
+\subsection{Switch Variants for Boundary-Leakage Mitigation}
+
+To study boundary effects and mitigation tradeoffs, we implement and compare three switch variants:
+
+\begin{itemize}
+    \item \textbf{V1 (baseline)}: single-epoch check using \texttt{stored\_epoch == current\_epoch}. This is vulnerable to boundary leakage when duplicates straddle an epoch rotation.
+    \item \textbf{V2 (sliding window)}: checks both current and previous epoch (logical two-epoch window), so cross-boundary duplicates are still recognized and suppressed.
+    \item \textbf{V3 (dual-register Bloom)}: uses a dual-register Bloom-style design to reduce hash-collision false positives (stronger collision behavior), but its boundary behavior remains similar to V1.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.96\linewidth}{
+\textbf{Boundary-Leakage Mitigation Across Variants}\\[1mm]
+\textbf{Timeline:} \hspace{1mm} ... \(E_t\) \(\mid\) \(E_{t+1}\) ...  (epoch boundary at \(\mid\))\\[1mm]
+\textbf{V1:} check \(E_{t+1}\) only \\
+\hspace*{7mm} duplicate that first arrived in \(E_t\) and repeats in \(E_{t+1}\) may leak\\[1mm]
+\textbf{V2 (sliding-window):} check \(E_t\) \textit{or} \(E_{t+1}\) \\
+\hspace*{7mm} cross-boundary duplicates are still recognized and suppressed\\[1mm]
+\textbf{V3 (dual-register Bloom):} collision-focused design with stronger FP resistance \\
+\hspace*{7mm} improves collision behavior, but does not eliminate boundary leakage by itself
+}}
+\caption{Conceptual comparison of V1, V2 (sliding window), and V3 (dual-register Bloom).}
+\label{fig:v123-boundary-mitigation}
+\end{figure}
+
+\subsection{Packet and Traffic Path}
+
+Each gateway sends UDP packets with FeBEx metadata: $(\texttt{dev\_addr},\texttt{fcnt},\texttt{gw\_id})$. The switch forwards exactly one copy of each unique uplink to the correct tenant backend and mirrors that first-forwarded copy to cloud for Proof-of-Coverage attribution.
+
+\subsection{Implementation Choices}
+
+\begin{itemize}
+    \item \textbf{Two-hash approach}: one hash for index, one for verification key to reduce collision ambiguity.
+    \item \textbf{Epoch expiry}: no explicit deletion; stale entries naturally age out when epoch changes.
+    \item \textbf{LPM tenant steering}: simple multi-tenant isolation without per-device forwarding entries.
+    \item \textbf{Clone-on-first-forward}: preserves attribution while still suppressing redundant backhaul packets.
+\end{itemize}

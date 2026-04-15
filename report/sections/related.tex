@@ -1,0 +1,74 @@
+\section{Related Works}
+\label{sec:related}
+
+This work intersects several research areas: network deduplication, P4 programmable switching, IoT backhaul optimization, and in-network processing.
+
+\subsection{Network Deduplication}
+
+Packet deduplication at the network layer is well-studied. Traditional approaches operate at the cloud or core network layer. \textit{Cloud-based deduplication} is the standard in Helium and similar networks, where a centralized backend receives all copies and performs software-based duplicate detection using in-memory lookup tables or bloom filters. While simple and flexible, this approach wastes upstream bandwidth and processing resources.
+
+\textit{Intermediate deduplication} has been explored in various contexts. For example, in wireless sensor networks, in-network packet aggregation and duplicate suppression have been used to reduce energy consumption~\cite{tada}. However, these approaches typically operate on lower-layer protocols (e.g., at the MAC layer) and do not address the specific challenges of heterogeneous IoT backhaul networks.
+
+\textit{Middle-box deduplication} solutions (e.g., load balancers, NAT boxes) can perform stateful deduplication, but require dedicated middlebox infrastructure and do not integrate into the forwarding datapath. FeBEx differs by embedding deduplication as a first-class forwarding action in a P4-programmable switch, eliminating separate infrastructure.
+
+\subsection{P4 and Programmable Networks}
+
+P4~\cite{p4} is a domain-specific language for programming network packet forwarding in data plane devices. Since its introduction in 2014, P4 has enabled researchers and operators to implement custom network protocols and services without modifying underlying hardware or relying on vendor-specific instruction sets.
+
+Notable P4-based services include:
+
+\begin{enumerate}
+    \item \textbf{Stateful packet processing}: Services like INT (In-band Network Telemetry)~\cite{int} use P4 registers and arithmetic to collect per-packet metrics. FeBEx applies similar register-based state to track deduplication keys.
+    \item \textbf{Load balancing}: P4-based load balancers~\cite{conga,clove} use hash functions and port selection logic implemented in P4 pipelines. FeBEx similarly uses dual CRC32 hashing for key indexing and verification.
+    \item \textbf{In-network aggregation}: Techniques like data aggregation in switches have been explored to reduce bandwidth in data center and wide-area networks~\cite{netcache}.
+    \item \textbf{Multi-tenant isolation}: P4 pipelines can enforce tenant isolation through LPM-based forwarding and table-entry-based access control, as demonstrated in virtual network slicing systems.
+\end{enumerate}
+
+Our work applies P4 to a new domain (IoT backhaul deduplication) and validates practical design choices (register sizing, hash collision handling, epoch-based expiry) that may be applicable to other stateful P4 services.
+
+\subsection{Hash-Based Deduplication}
+
+Bloom filters and hash tables are classical approaches to deduplication. A naive approach stores the full packet or a cryptographic hash and performs exact-match lookup. However, this is expensive in switch memory.
+
+FeBEx uses a two-level hash approach: a primary hash function selects the register index, and a second hash function serves as a verification key to disambiguate collisions. This is a well-known technique in hash table design~\cite{hashtables} and is adopted here to fit within typical P4 register constraints (typically 32-64 KB per switch).
+
+Bloom filters offer probabilistic deduplication with tunable false-positive rates~\cite{bloomfilters}. FeBEx does not use Bloom filters directly; instead, it implements a deterministic hash table with overflow handling through register size tuning. This trades off some flexibility for simplicity and determinism in a P4 context.
+
+\subsection{IoT and LoRaWAN Infrastructure}
+
+LoRaWAN is a Low Power Wide Area Network (LPWAN) protocol standardized by the LoRa Alliance. Helium is a community-driven network operating at LoRaWAN frequencies.
+
+Infrastructure challenges in LoRaWAN include:
+
+\begin{enumerate}
+    \item \textbf{Backhaul congestion}: As networks scale, the backhaul from gateways to cloud becomes a bottleneck, especially in dense urban deployments.
+    \item \textbf{Packet loss}: Congestion and limited gateway capacity lead to packet loss, reducing network reliability.
+    \item \textbf{Cost}: Backhaul bandwidth is expensive, especially for deployment in cost-sensitive regions.
+    \item \textbf{Proof-of-Coverage}: In incentivized networks like Helium, gateways must be compensated based on coverage contribution. This requires accurate attribution of which gateway delivered a given packet.
+\end{enumerate}
+
+FeBEx directly addresses backhaul congestion and cost by moving deduplication from cloud to edge. It maintains Proof-of-Coverage accuracy through clone sessions that mirror authenticated receipts to the Helium Cloud.
+
+\subsection{Edge Computing and Programmable Switches}
+
+The emergence of programmable switches (Barefoot Tofino, NetronomeAgilio, etc.) has enabled a new class of \textit{edge services} --- stateful services running in the forwarding datapath rather than in separate appliances or cloud servers. Examples include:
+
+\begin{enumerate}
+    \item \textbf{Network monitoring and telemetry}: Switches can collect and aggregate statistics in-band~\cite{int}.
+    \item \textbf{Consensus and coordination}: In-switch services have been used to implement distributed state machine replication~\cite{silkroad}.
+    \item \textbf{Load balancing}: Switches can make intelligent forwarding decisions based on live server state~\cite{conga}.
+\end{enumerate}
+
+FeBEx is positioned in this space as an edge deduplication service. By implementing deduplication in the switch, we move a CPU-bound cloud operation into hardware-accelerated forwarding, reducing latency and cost.
+
+\subsection{Summary and Positioning}
+
+FeBEx is unique in combining:
+\begin{enumerate}
+    \item \textbf{Domain focus}: Specific to IoT/LoRaWAN backhaul (not general-purpose deduplication).
+    \item \textbf{Integration}: Embedded in P4 forwarding pipeline with stateful registers (not a separate middlebox).
+    \item \textbf{Evaluation}: Comprehensive empirical validation on realistic LoRaWAN topologies and traffic patterns.
+    \item \textbf{Proof-of-Coverage awareness}: Maintains attribution accuracy through clone sessions, critical for incentivized networks.
+\end{enumerate}
+
+We distinguish this work from prior cloud-based deduplication by showing that edge-based deduplication is both feasible and beneficial, and from general P4 stateful processing literature by providing concrete design parameters and tradeoffs for IoT backhaul specifically.

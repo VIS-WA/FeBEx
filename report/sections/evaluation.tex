@@ -1,0 +1,78 @@
+\section{Evaluation Methodology}
+\label{sec:evaluation}
+
+This section describes the evaluation setup and experiment design used to validate FeBEx.
+
+\subsection{Testbed and Setup}
+
+We evaluate FeBEx on Mininet with BMv2 (v1model) and a Python P4Runtime controller. The topology contains:
+\begin{itemize}
+    \item $K$ gateway hosts generating packet copies according to a coverage matrix,
+    \item one FeBEx BMv2 switch,
+    \item $M$ tenant LNS hosts,
+    \item one cloud host receiving cloned receipts.
+\end{itemize}
+
+Traffic generation and capture are automated end-to-end. For each experiment point, we run both:
+\begin{itemize}
+    \item \textbf{Dedup OFF}: routing baseline,
+    \item \textbf{Dedup ON}: FeBEx active deduplication.
+\end{itemize}
+
+\subsection{Metrics}
+
+We report the following metrics:
+\begin{itemize}
+    \item \textbf{Backhaul savings}: $1 - \frac{\text{packets\_ON}}{\text{packets\_OFF}}$.
+    \item \textbf{Delivery ratio}: unique uplinks received / unique uplinks sent.
+    \item \textbf{Tenant isolation}: cross-tenant delivery violations.
+    \item \textbf{Duplicate leakage}: duplicates that pass through under dedup ON.
+    \item \textbf{Throughput}: effective packets per second at the receiver side.
+\end{itemize}
+
+\subsection{Experiment Matrix}
+
+\begin{itemize}
+    \item \textbf{E1}: Backhaul savings vs. average duplicate factor.
+    \item \textbf{E2}: Correctness (unique-uplink delivery ratio).
+    \item \textbf{E3}: Multi-tenant isolation.
+    \item \textbf{E4}: City-scale scalability across $N$/$K$ settings.
+    \item \textbf{E5}: Register size sensitivity.
+    \item \textbf{E6}: Epoch interval sensitivity.
+    \item \textbf{E7}: Payment receipt attribution correctness.
+    \item \textbf{E8}: Variant comparison (V1/V2/V3) for boundary-leakage and collision tradeoffs.
+\end{itemize}
+
+\subsection{Configuration}
+
+Unless otherwise specified, experiments use medium-city settings (100 devices, 10 gateways, 4 tenants) and fixed seeds for reproducibility. Register size and epoch interval are swept only in E5 and E6 respectively.
+
+For E8, we keep workload and topology fixed and only change switch variant (V1, V2, V3) to isolate variant-specific effects: sliding-window boundary suppression (V2) versus dual-register Bloom collision behavior (V3).
+
+\subsection{Execution Workflow}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.95\linewidth}{
+\textbf{Evaluation Workflow}\\[1mm]
+Generate coverage + tenant mapping\\
+$\downarrow$\\
+Start topology, receivers, and controller\\
+$\downarrow$\\
+Run gateway traffic generators\\
+$\downarrow$\\
+Collect LNS/cloud logs\\
+$\downarrow$\\
+Compute metrics and render plots
+}}
+\caption{End-to-end workflow used in every experiment run.}
+\label{fig:eval-workflow}
+\end{figure}
+
+\subsection{Threats to Validity}
+
+\begin{itemize}
+    \item BMv2 is a software target and can saturate under high offered load.
+    \item Packet format is simplified for controlled evaluation.
+    \item Results emphasize dedup logic and trends, not absolute hardware dataplane limits.
+\end{itemize}

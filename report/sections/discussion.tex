@@ -1,0 +1,125 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Key Insights}
+
+Our evaluation reveals several important insights about in-network deduplication for IoT backhaul:
+
+\subsubsection{Register-Based Dedup is Feasible}
+
+The two-level hash approach (index hash + verification key) is simple and effective. With careful tuning, it achieves near-theoretical backhaul savings without requiring complex data structures (e.g., Bloom filters or hash trees).
+
+\subsubsection{Memory vs. Effectiveness Tradeoff}
+
+E5 demonstrates a clear tradeoff: small registers (256 slots) leak many duplicates (39\%), while large registers (4,096+ slots) leak almost none (<1\%). The rule-of-thumb (register size $\geq 4N$) provides a practical guideline for deployments. For a city network with 500 devices, 2 KB of register storage per switch is acceptable.
+
+\subsubsection{Epoch Tuning is Critical}
+
+E6 shows that epoch intervals directly impact boundary leakage. Epochs that are too short (0.5s) cause high leakage; epochs that are too long (>10s) waste memory. The recommendation (5-10 seconds) aligns with typical LoRaWAN retransmission intervals, suggesting that choosing epoch based on application requirements is the right approach.
+
+\subsubsection{Multi-Tenancy is Transparent}
+
+E3 shows zero cross-contamination across four tenants, demonstrating that LPM-based steering scales and integrates naturally with deduplication. Tenants are isolated by DevAddr prefix, not by state separation, making the implementation simple.
+
+\subsubsection{Scalability is Limited by BMv2, Not FeBEx}
+
+E4 shows that FeBEx's deduplication logic scales well to 500 devices and 50 gateways, but BMv2's throughput saturates around 1 Kpps. Real P4 hardware can sustain Mpps+ and would not have this bottleneck. This suggests that FeBEx would be deployable on production switches.
+
+\subsection{Comparison to Related Work}
+
+\subsubsection{Cloud-Based Deduplication}
+
+Traditional approaches handle deduplication in cloud backends. FeBEx saves bandwidth and latency by moving this logic to the edge. Our results show 50-90\% bandwidth savings, directly reducing backhaul costs. This is a fundamental architectural improvement, not a micro-optimization.
+
+\subsubsection{Bloom Filter Approaches}
+
+Bloom filters offer probabilistic deduplication with tunable false-positive rates. FeBEx's hash table with verification key is simpler (no false positives) and more deterministic, at the cost of potential false negatives (duplicate leakage) due to hash collisions. For LoRaWAN, where missing a few duplicates is acceptable but falsely suppressing unique packets is unacceptable, FeBEx's approach is superior.
+
+\subsubsection{P4-Based Stateful Services}
+
+FeBEx demonstrates that P4 register-based state can be used for sophisticated forwarding decisions (not just counting). This extends the applicability of P4 programmable switches beyond simple packet processing to stateful, time-aware filtering.
+
+\subsection{Limitations}
+
+\subsubsection{BMv2 Saturation}
+
+Experiments are conducted on BMv2, a software switch. It saturates around 1 Kpps due to CPU limitations and Mininet overhead. Real deployments on hardware switches (Tofino, Trident4) would sustain Mpps+ without the egress loss observed in E2 at high loads.
+
+\subsubsection{Simplified Packet Format}
+
+We use a custom 12-byte FeBEx header instead of real LoRaWAN framing. This simplifies development and evaluation but doesn't reflect the complexity of actual LoRaWAN packet format (LoRa PHY, LoRaWAN MAC, encryption). Adapting FeBEx to real LoRaWAN format is a matter of parser modifications and key field selection.
+
+\subsubsection{No Encryption}
+
+Real LoRaWAN packets are encrypted and authenticated. FeBEx deduplication is based on plaintext (dev\_addr, fcnt) — adequate for our evaluation. In production, the DevAddr and FCnt fields are available before decryption (they are needed for routing and frame integrity checks), so encryption does not complicate deduplication.
+
+\subsubsection{Single Aggregation Point}
+
+Our topology assumes a single FeBEx switch. Real deployments might have multiple aggregation points or hierarchical topologies. Multi-switch coordination (to avoid upstream redundancy) is future work.
+
+\subsubsection{No Packet Loss or Out-of-Order Handling}
+
+Our evaluation assumes reliable, in-order packet delivery. Real networks exhibit loss and reordering. Out-of-order duplicates (arriving before earlier copies) might trick a simple dedup filter; FeBEx's epoch-based expiry provides partial protection, but a more sophisticated sequence-number-aware mechanism could be beneficial.
+
+\subsection{Practical Deployment Considerations}
+
+\subsubsection{Register Sizing}
+
+Based on E5, deployments should provision register size $\geq 4N$. For Helium's current scale (~700,000 active hotspots), a single aggregation point is infeasible, but hierarchical or regional aggregators could use this formula. A regional aggregator for 10,000 devices would need 40,000 register slots (~160 KB with 32-bit keys), easily affordable on modern switches.
+
+\subsubsection{Epoch Tuning}
+
+The control plane can tune epoch intervals per-deployment. LoRaWAN Class A devices (most common) have configurable uplink intervals (5 seconds to minutes). Choosing epoch to match the 99th percentile retransmission interval balances boundary leakage and memory efficiency.
+
+\subsubsection{Integration with Helium}
+
+Deploying FeBEx as a Helium Network Server would require:
+\begin{enumerate}
+    \item Validating the approach on production hardware (Tofino, Trident4).
+    \item Adapting to real LoRaWAN packet format and security model.
+    \item Interfacing with Helium's PoC and reward systems (cloned receipts for payment).
+    \item Handling multi-region scalability (sharding by DevAddr prefix or tenant).
+\end{enumerate}
+
+The technical foundation laid by FeBEx is sound; these are primarily integration tasks.
+
+\subsubsection{Comparison to Alternative Architectures}
+
+\textit{Edge caching}: Intermediate nodes could cache packets for short periods, suppressing duplicates arriving within the cache window. Simpler than FeBEx but requires caching logic in gateways or edge appliances.
+
+\textit{Gossip-based dedup}: Gateways could exchange seen packet IDs via low-bandwidth out-of-band signaling. Distributed and fault-tolerant but complex to coordinate.
+
+\textit{Application-level dedup}: Endpoints (LNS) dedup based on packet content. Simplest but wastes backhaul bandwidth and introduces latency.
+
+FeBEx provides a middle ground: centralized but at the edge (not cloud), requires no changes to gateways or endpoints, and integrates with PoC systems.
+
+\subsection{Future Work}
+
+\subsubsection{Hardware Validation}
+
+Implement FeBEx on a hardware switch (Tofino, Trident4) and measure real-world performance. This would validate the Mpps+ throughput and eliminate BMv2 artifacts.
+
+\subsubsection{Multi-Switch Coordination}
+
+Design protocols for multiple FeBEx aggregators to coordinate and avoid upstream redundancy. This is critical for deployment at scale.
+
+\subsubsection{Adaptive Parameters}
+
+Implement online tuning of epoch intervals and register sizes based on observed traffic patterns (device arrival/departure, duplicate rates). Automated parameter adaptation would improve robustness.
+
+\subsubsection{LoRaWAN Compliance}
+
+Implement FeBEx on real LoRaWAN packet formats and integrate with Helium's production infrastructure. This requires security model validation and PoC system integration.
+
+\subsubsection{Variant Comparison}
+
+While E5-E8 explore hash collision handling, alternative designs could be compared:
+\begin{itemize}
+    \item Multi-hash Bloom filters: Use multiple independent hash functions to reduce false positives (at cost of false negatives).
+    \item Sketch-based dedup: Apply techniques from streaming algorithms to handle true duplicates more effectively.
+    \item Learning-based dedup: Train models on observed traffic to predict duplicate likelihood.
+\end{itemize}
+
+\subsubsection{Backward Compatibility}
+
+Develop mechanisms to deploy FeBEx in existing networks without breaking compatibility with legacy gateways and LNS systems. This might involve proxying at the aggregation point to translate between FeBEx headers and standard LoRaWAN frames.

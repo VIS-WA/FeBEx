@@ -1,0 +1,156 @@
+\section{Background}
+\label{sec:background}
+
+This section provides necessary background on LoRaWAN networks, the Helium ecosystem, and P4 programmable switches.
+
+\subsection{LoRaWAN and Helium Networks}
+
+\subsubsection{LoRaWAN Overview}
+
+LoRaWAN is a Low Power Wide Area (LPWA) networking protocol designed for battery-operated devices over long distances (10-20+ km in rural areas). It operates in unlicensed ISM bands (e.g., 915 MHz in North America, 868 MHz in Europe) and is standardized by the LoRa Alliance.
+
+A typical LoRaWAN network consists of:
+
+\begin{enumerate}
+    \item \textbf{End devices (EDs)}: Battery-powered IoT sensors that transmit data at very low power, sacrificing bandwidth for range and energy efficiency.
+    \item \textbf{Gateways (hotspots)}: Receive LoRa signals from EDs and forward them to a Network Server (LNS) via IP backhaul.
+    \item \textbf{Network Server}: Processes uplinks (ED to cloud) and downlinks (cloud to ED), performs deduplication, and routes to application backends.
+\end{enumerate}
+
+Key characteristics:
+\begin{itemize}
+    \item \textit{Broadcast nature}: A single ED transmission is received by \textit{all} gateways in range (typically 3-10 gateways in urban areas, 1-3 in rural areas).
+    \item \textit{Redundancy by design}: Multiple copies per uplink ensure reliability; loss of a single gateway doesn't break the link.
+    \item \textit{Backhaul inefficiency}: This redundancy must traverse the backhaul network. In a city with 100 gateways and 1,000 active devices, a typical device might be heard by 4 gateways, generating 4,000 redundant backhaul packets per 1,000 logical uplinks.
+\end{itemize}
+
+\subsubsection{Helium Network}
+
+Helium is a community-run network that incentivizes hotspot operators to deploy gateways by rewarding them with HNT cryptocurrency. Rewards are proportional to \textit{Proof-of-Coverage (PoC)} --- a mechanism by which a gateway's genuine coverage contribution is verified.
+
+In Helium's PoC model, a gateway earns rewards based on:
+\begin{enumerate}
+    \item \textit{Data transfer}: Rewarded per packet successfully forwarded to the LNS.
+    \item \textit{Witness attestation}: Other gateways witness and attest to a gateway's coverage beacon, confirming its geographic presence.
+\end{enumerate}
+
+Accurate attribution is critical: if the PoC mechanism cannot determine which gateway originally heard a packet, reward distribution becomes ambiguous. FeBEx preserves this attribution through clone sessions (see Section~\ref{sec:design}).
+
+\subsection{P4 Programmable Switches}
+
+\subsubsection{P4 Language and Execution Model}
+
+P4 (Programming Protocol-independent Packet Processing) is a domain-specific language that allows programmers to define custom packet processing logic that runs in switch data planes. A P4 program specifies:
+
+\begin{enumerate}
+    \item \textbf{Headers}: Custom packet headers and metadata.
+    \item \textbf{Parser}: State machine that extracts headers from raw packets.
+    \item \textbf{Ingress pipeline}: Match-action tables and stateful operations on matched packets.
+    \item \textbf{Egress pipeline}: Final packet modification and forwarding decisions.
+    \item \textbf{Deparser}: Reconstructs the packet for transmission.
+\end{enumerate}
+
+Execution follows a strict deterministic model: each packet is processed by the parser, then independently by the ingress pipeline, egress pipeline, and deparser. Modern P4 switches support both stateless operations (standard forwarding, header rewriting) and stateful operations (register reads/writes, packet mirroring, recirculation).
+
+\subsubsection{BMv2 and v1model}
+
+BMv2 (Behavioral Model v2) is a software switch implementation used for development and testing. It implements the \textit{v1model} architecture, which is one of several P4 target architectures.
+
+v1model provides:
+
+\begin{enumerate}
+    \item \textbf{Packet I/O}: Standard Linux interfaces (TAP devices or pcap files).
+    \item \textbf{Match-action tables}: Single or cascaded LPM, exact match, ternary match.
+    \item \textbf{Registers}: Arrays indexed by packet-derived values, supporting atomic read-modify-write.
+    \item \textbf{Counters}: Automatic per-entry or per-packet statistics.
+    \item \textbf{Cloning}: I2E (ingress-to-egress) and E2E (egress-to-egress) cloning for packet replication.
+    \item \textbf{Recirculation}: A packet can be fed back to the ingress pipeline for multi-pass processing.
+\end{enumerate}
+
+\subsubsection{P4Runtime and Control Plane}
+
+P4Runtime is a standardized API for controlling a P4 switch at runtime. It allows a control plane program (e.g., a Python controller) to:
+
+\begin{enumerate}
+    \item Install and remove forwarding table entries.
+    \item Read and write packet counters and registers.
+    \item Configure cloning sessions and other switch parameters.
+    \item Receive notifications (e.g., when a switch becomes active).
+\end{enumerate}
+
+Communication occurs over gRPC, a high-performance RPC framework. In our implementation, we use \textit{finsy}, a Python library that provides a Pythonic interface to P4Runtime.
+
+\subsection{Deduplication Fundamentals}
+
+\subsubsection{Hash-Based Lookup}
+
+A deduplication system must maintain a data structure that answers the query: \textit{``Have I seen this packet before?''} The most efficient approach in constrained hardware is hash-based lookup:
+
+\begin{enumerate}
+    \item \textbf{Hash function}: Map a packet's \textit{identifying features} (e.g., DevAddr + FCnt) to an index $h$ in a register array.
+    \item \textbf{Verification key}: Store a secondary hash (the \textit{key}) in the register to disambiguate collisions.
+    \item \textbf{Epoch}: Store a timestamp (epoch) to invalidate old entries.
+\end{enumerate}
+
+Formally, the lookup algorithm is:
+\begin{enumerate}
+    \item Compute $h = \text{hash\_index}(\text{dev\_addr}, \text{fcnt})$ and $k = \text{hash\_key}(\text{dev\_addr}, \text{fcnt})$.
+    \item Read register $R[h]$ to get stored tuple $(k', \text{epoch}')$.
+    \item If $k == k'$ and $\text{epoch} == \text{epoch}'$, the packet is a \textit{duplicate}.
+    \item Otherwise, write $(k, \text{epoch})$ to $R[h]$ and forward the packet.
+\end{enumerate}
+
+\subsubsection{Hash Collisions and False Positives}
+
+When two different packets hash to the same index, a \textit{collision} occurs. If the verification key is weak (e.g., truncated), two colliding packets might be mistaken for duplicates:
+
+\begin{equation}
+P(\text{false positive}) = P(k == k' | h == h') \cdot P(h == h')
+\end{equation}
+
+For a good hash function mapping to $N$ buckets and $x$ unique packets:
+\begin{equation}
+P(\text{collision}) \approx 1 - e^{-x(x-1)/(2N)}
+\end{equation}
+
+With 32-bit hashes (full CRC32), the collision probability is negligible ($\approx 1/(2^{32})$) for practical packet counts ($x < 10^6$). Increasing the register size $N$ similarly reduces collision probability.
+
+\subsubsection{Epoch-Based Expiry}
+
+Packets are time-dependent. An old packet should not suppress newer packets with the same (DevAddr, FCnt) pair after a sufficient time interval. FeBEx uses \textit{epochs} to expire entries:
+
+\begin{enumerate}
+    \item The controller periodically increments a global epoch counter (e.g., every 5 seconds).
+    \item When a packet is stored in a register, its epoch is recorded.
+    \item On lookup, if the stored epoch is stale (differs from the current epoch), the entry is treated as expired and overwritten.
+\end{enumerate}
+
+This is memory-efficient (no explicit deletion) and allows reuse of register slots over time.
+
+\subsection{Evaluation Methodology}
+
+\subsubsection{Mininet for Network Simulation}
+
+Mininet is a network emulator that creates a lightweight virtual network on a single Linux machine. Key features:
+
+\begin{enumerate}
+    \item \textbf{Hosts}: Processes running in isolated network namespaces.
+    \item \textbf{Switches}: Optional software switches (OVS, BMv2).
+    \item \textbf{Links}: Emulated with configurable bandwidth, latency, and loss.
+    \item \textbf{Real applications}: Unmodified Linux applications (Python, iperf, etc.) run in Mininet hosts.
+\end{enumerate}
+
+For FeBEx, we use Mininet to create a topology of gateways, LNS hosts, and a cloud host, with BMv2 as the central switch.
+
+\subsubsection{Coverage Matrices}
+
+In real LoRaWAN networks, which gateways hear which devices is determined by radio propagation, terrain, and antenna patterns. We abstract this as a \textit{coverage matrix}: an $N \times K$ binary matrix where entry $(i, j) = 1$ if device $i$ is heard by gateway $j$.
+
+Coverage matrices can be generated:
+\begin{enumerate}
+    \item \textbf{Probabilistic}: Each entry is 1 with probability $p$, modeled as a Poisson process with mean $\lambda$.
+    \item \textbf{Spatial}: Devices and gateways are placed in 2D space, coverage determined by distance.
+    \item \textbf{Explicit}: Manually specified (e.g., for small test cases).
+\end{enumerate}
+
+The average coverage $\bar{d}$ (duplicate factor) is the mean number of gateways covering a device, directly related to backhaul savings.
