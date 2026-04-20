@@ -24,9 +24,6 @@ FeBEx/
 │       └── test_febex.py          # FeBEx integration test script
 ├── results/                       # Generated experiment outputs
 ├── plots/                         # Generated figures (including dashboard)
-├── misc/                          # Development documentation
-│   ├── PROGRESS.md                # Project status and development log
-│   └── FeBEx_Implementation_Spec.md  # Design specification
 └── ...
 ```
 
@@ -108,5 +105,3 @@ Open the HTML in any modern web browser (requires internet for map tiles). Use t
 ## Project Development
 
 This repository was developed with assistance from AI tools (Claude Code). Implementation, testing, and evaluation remain the work of the project team.
-
-For detailed project history and development notes, see `misc/PROGRESS.md` and `misc/FeBEx_Implementation_Spec.md`.
