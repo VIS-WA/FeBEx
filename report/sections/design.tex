@@ -1,119 +1,200 @@
-\section{System Design}
+\section{Design}
 \label{sec:design}
-
-This section describes the FeBEx system architecture and design decisions.
-
-\subsection{High-Level Architecture}
-
-FeBEx is positioned as a P4-programmable aggregation switch between IoT gateways and cloud backends. The system comprises three components:
-
-\begin{enumerate}
-    \item \textbf{Data plane}: A P4 pipeline running on BMv2 (v1model) that performs three functions:
-    \begin{itemize}
-        \item Tenant steering: Route packets to the correct LNS based on DevAddr prefixes.
-        \item In-network deduplication: Suppress redundant copies using register-based state.
-        \item Receipt mirroring: Clone first-forwarded packets to a Helium Cloud endpoint for PoC verification.
-    \end{itemize}
-    \item \textbf{Control plane}: A Python controller (using finsy and P4Runtime) that:
-    \begin{itemize}
-        \item Installs LPM forwarding entries for each tenant.
-        \item Configures deduplication state (enable/disable, register size).
-        \item Rotates epochs to expire old entries.
-        \item Configures clone sessions.
-    \end{itemize}
-    \item \textbf{Evaluation framework}: Mininet topology, traffic generators, and metrics collectors for experiments.
-\end{enumerate}
-
-\subsection{Network Topology}
-
-The FeBEx deployment assumes a star topology with a single aggregation point:
-
-\[
-\text{Gateways} \, (1..K) \longrightarrow \text{FeBEx Switch} \longrightarrow \text{LNS Tenants} \, (1..M) \text{ + Cloud}
-\]
-
-In our Mininet evaluation:
-\begin{itemize}
-    \item $K$ gateway hosts (gateways) generate and send packets.
-    \item 1 BMv2 switch (FeBEx) forwards or suppresses packets.
-    \item $M$ LNS hosts (tenant backends) receive forwarded packets.
-    \item 1 cloud host receives cloned receipts.
-\end{itemize}
-
-Gateway hosts are connected to switch ports $1 \ldots K$. LNS hosts are connected to ports $K+1 \ldots K+M$. The cloud host is connected to port $K+M+1$.
-
-\subsection{Packet Format}
-
-LoRaWAN packets are typically complex, with multiple header layers. For this evaluation, we use a simplified custom \textit{FeBEx metadata header} that captures the essential fields needed for deduplication and tenant steering:
-
-\begin{verbatim}
-Ethernet | IPv4 | UDP (port 5555) | FeBEx Meta | Payload
-                                    |-- 12 bytes --|
-\end{verbatim}
-
-FeBEx metadata structure (12 bytes, network byte order):
-
-\begin{enumerate}
-    \item \textbf{dev\_addr} (4 bytes): LoRaWAN device address, used for tenant steering and deduplication key.
-    \item \textbf{fcnt} (4 bytes): Frame counter, monotonically increasing per device, used for deduplication.
-    \item \textbf{gw\_id} (2 bytes): Gateway identifier (1-based), used for PoC attribution.
-    \item \textbf{flags} (1 byte): Reserved.
-    \item \textbf{padding} (1 byte): Reserved.
-\end{enumerate}
-
-The tuple (dev\_addr, fcnt) uniquely identifies a logical uplink. The gw\_id identifies the gateway that forwarded this copy.
-
-\subsection{Deduplication Algorithm (Figure~\ref{fig:dedup-algo})}
-
-FeBEx uses a two-level hash approach: (1) an index hash selects a register slot, (2) a verification key disambiguates collisions, (3) an epoch timestamp enables expiry.
-
-\begin{figure}[H]
-\centering
-\fbox{\parbox{0.9\linewidth}{
-\textbf{Deduplication Flowchart (high-level):}\\[1mm]
-Input tuple $(dev\_addr, fcnt)$
-$\rightarrow$
-Compute index hash and verification key\\
-$\rightarrow$
-Read stored $(key, epoch)$ at selected slot\\
-$\rightarrow$
-Compare with current epoch and computed key\\[1mm]
-\hspace*{2mm}\textit{Match} $\rightarrow$ suppress as duplicate\\
-\hspace*{2mm}\textit{Mismatch} $\rightarrow$ update slot and forward
-}}
-\caption{Deduplication algorithm: two-level hashing with epoch-based expiry.}
-\label{fig:dedup-algo}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figures/febexarch.png}
+    \vspace{-4mm}
+    \caption{\emph{FeBEx system architecture and packet-processing pipeline.} Uplink packets from IoT gateways arrive at the FeBEx P4 switch, which extracts the relevant metadata, steers packets to the appropriate LNS tenant using DevAddr-based forwarding, suppresses redundant copies using register-based in-network deduplication, and mirrors the first forwarded copy to the Helium cloud path for receipt and attribution handling.}
+     \vspace{-4mm}
+    \label{fig:febexarchitecture}
 \end{figure}
 
-\textbf{Key properties}:
-\begin{itemize}
-    \item \textit{Correctness}: Unique packets (different dev\_addr or fcnt) always forward; collisions disambiguated by 32-bit key.
-    \item \textit{Efficiency}: Only 48 bits (32-bit key + 16-bit epoch) stored per register slot.
-    \item \textit{Expiry}: Epoch rotation (every 5-10 sec) invalidates old entries without explicit deletion.
-\end{itemize}
+This section describes the FeBEx architecture and the key design decisions that enable in-network duplicate suppression for federated LoRaWAN backhaul. Figure~\ref{fig:febexarchitecture} illustrates the overall system and the sequence of processing stages applied to each uplink packet inside the programmable switch. At a high level, FeBEx is deployed as a programmable aggregation switch between multiple gateways and shared backend services. Rather than allowing every received copy of an uplink packet to traverse the backhaul and be discarded only at the backend, FeBEx suppresses redundant copies directly in the forwarding path while preserving tenant-specific routing and attribution semantics.
 
-\subsection{Tenant Steering}
+\fakepar{System Overview}
+FeBEx consists of two main components: a programmable data plane and a lightweight control plane. The data plane is implemented in P4 on BMv2 and is responsible for per-packet forwarding decisions. The control plane is implemented in Python using P4Runtime and Finsy, and is responsible for installing forwarding rules, configuring clone sessions, and rotating epochs for deduplication state expiry. Within the FeBEx pipeline, each packet is first parsed to extract the metadata fields, then matched to the appropriate tenant backend, checked against deduplication state, and finally cloned if it is the first valid copy of a logical uplink. In this way, FeBEx performs three tasks in a single forwarding pipeline: \textit{(i)} tenant-aware forwarding to the appropriate LoRa Network Server (LNS), \textit{(ii)} in-network duplicate suppression using compact register-based state, and \textit{(iii)} cloning of selected packets to a cloud endpoint for attribution.
 
-Packets are routed based on DevAddr using Longest Prefix Match (LPM). The controller allocates each tenant $m$ a contiguous prefix range:
+\fakepar{Deployment Topology}
+FeBEx assumes a star-shaped aggregation topology in which multiple gateways connect to a single programmable switch, which then forwards traffic to one of several tenant backends and, when required, to a cloud endpoint. In our Mininet-based implementation, gateway hosts generate packets and inject them into the switch, the BMv2 switch executes the FeBEx pipeline, tenant LNS hosts receive forwarded packets, and a separate cloud host receives cloned receipts. Concretely, if there are $K$ gateways and $M$ tenant backends, gateway hosts connect to ports $1 \ldots K$, tenant hosts connect to ports $K+1 \ldots K+M$, and the cloud host connects to port $K+M+1$. This topology captures the central aggregation role of FeBEx while remaining simple enough for controlled experimentation.
 
-\[
-\text{prefix}(m) = m \ll (32 - \lceil \log_2(M) \rceil)
-\]
-
-For $M=4$ tenants, this allocates the top 2 bits of DevAddr to tenant identity. The switch matches the DevAddr, sets the egress port (LNS port for that tenant), and rewrites the Ethernet destination MAC before forwarding. This approach is simple, flexible, and requires no per-device state.
-
-\subsection{Receipt Cloning}
-
-To maintain Proof-of-Coverage accuracy, FeBEx uses P4 cloning (I2E) to mirror the first-forwarded copy of each unique uplink to a Helium Cloud endpoint. The gw\_id field in the cloned packet identifies which gateway originally heard the uplink, enabling accurate payment attribution.
-
-The clone action is invoked in ingress: \texttt{clone(CloneType.I2E, 100)}, with session 100 configured at startup to mirror to the cloud port.
-
-\subsection{A/B Comparison: Dedup ON vs. OFF}
-
-To measure the impact of deduplication, the P4 program supports a toggle:
-
+\fakepar{Packet Abstraction}
+Rather than parsing the full LoRaWAN stack inside the switch, our prototype uses a compact custom metadata header that carries only the fields needed for deduplication, forwarding, and attribution, as shown in Fig.~\ref{fig:febexheader}. Each test packet consists of Ethernet, IPv4, UDP, a 12-byte FeBEx metadata header, and an arbitrary payload:
 \begin{verbatim}
-register<bit<1>>(1) dedup_enabled;
+            Ethernet | IPv4 | UDP (port 5555) |  FeBEx Meta  | Payload
+            
+                                              |-- 12 bytes --|
 \end{verbatim}
+The metadata header contains four fields of interest: \texttt{dev\_addr}, \texttt{fcnt}, \texttt{gw\_id}, and two reserved bytes. The pair $(\texttt{dev\_addr}, \texttt{fcnt})$ identifies a logical uplink, while \texttt{gw\_id} records which gateway produced the current copy. This abstraction lets us focus on the core network problem---duplicate suppression in shared backhaul---without tying the design to a specific physical-layer packet representation.
 
-The controller can disable deduplication by writing 0 to this register, putting the switch in a \textit{routing-only} baseline mode where all packets are forwarded (no suppression). This enables A/B comparison in experiments.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.4\linewidth]{figures/febexheader.png}
+    \vspace{-2mm}
+    \caption{\emph{FeBEx packet metadata format.} Each packet carries a compact 12-byte FeBEx header containing the device address, frame counter, and gateway identifier. The tuple $(\texttt{dev\_addr}, \texttt{fcnt})$ identifies a logical uplink for duplicate detection, while \texttt{gw\_id} preserves attribution information for the gateway that forwarded the packet.}
+    \vspace{-4mm}
+    \label{fig:febexheader}
+\end{figure}
+
+\fakepar{Deduplication Logic}
+The central design problem in FeBEx is deciding whether an arriving packet is the first observed copy of a logical uplink or a redundant duplicate that should be suppressed. To do this within bounded switch memory, FeBEx uses a two-level hash design. First, an \textit{index hash} maps the packet identifier $(\texttt{dev\_addr}, \texttt{fcnt})$ to a register slot. Second, a \textit{verification hash} is stored in that slot to reduce the chance of treating two different packets as the same entry. Each slot additionally stores an epoch value, allowing stale entries to expire without explicit deletion.
+
+Operationally, for each arriving packet, the switch computes an index and verification key from $(\texttt{dev\_addr}, \texttt{fcnt})$, reads the stored tuple at the selected register slot, and compares the stored key and epoch against the current values, as illustrated in Fig.~\ref{fig:dedupalgo}. If both match, the packet is treated as a duplicate and suppressed. Otherwise, the switch updates the slot with the new key and current epoch, and the packet is forwarded as the first valid copy. This design keeps the data-plane state compact while enabling duplicate detection at line rate.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.5\linewidth]{figures/Dedup.png}
+    \vspace{-2mm}
+    \caption{\emph{FeBEx deduplication workflow.} For each incoming packet, the switch computes an index hash and verification key from $(\texttt{dev\_addr}, \texttt{fcnt})$, reads the corresponding register entry, and compares the stored key and epoch against the current values. A matching key within the active epoch is suppressed as a duplicate; otherwise, the entry is updated and the packet is forwarded as the first valid copy.}
+    \vspace{-4mm}
+    \label{fig:dedupalgo}
+\end{figure}
+
+% \begin{figure}[t]
+% \centering
+% \fbox{\parbox{0.9\linewidth}{
+% \textbf{Deduplication Flow (high level):}\\[1mm]
+% Input tuple $(\texttt{dev\_addr}, \texttt{fcnt})$
+% $\rightarrow$
+% Compute index hash and verification key\\
+% $\rightarrow$
+% Read stored $(key, epoch)$ at selected slot\\
+% $\rightarrow$
+% Compare with current epoch and computed key\\[1mm]
+% \hspace*{2mm}\textit{Match} $\rightarrow$ suppress as duplicate\\
+% \hspace*{2mm}\textit{Mismatch} $\rightarrow$ update slot and forward
+% }}
+% \caption{\emph{Deduplication algorithm.} FeBEx uses two-level hashing with epoch-based expiry. The first observed copy of a logical uplink updates switch state and is forwarded, while subsequent matching copies in the same epoch are suppressed.}
+% \label{fig:dedup-algo}
+% \end{figure}
+
+\fakepar{Epoch-Based Expiry}
+A deduplication entry should not persist indefinitely, since old packets must not suppress future packets that happen to reuse the same identifier space after sufficient time has passed. FeBEx addresses this using epochs. The control plane periodically increments a global epoch counter, and each register entry stores the epoch in which it was last written. On lookup, if the stored epoch differs from the current epoch, the entry is treated as stale and can be safely overwritten. This avoids the need for explicit per-entry deletion and provides a simple mechanism for bounding the lifetime of deduplication state. In practice, epoch intervals in the range of a few seconds provide a good tradeoff between state freshness and duplicate suppression.
+
+\fakepar{Tenant-Aware Forwarding}
+Because FeBEx is intended for federated and potentially multi-tenant deployments, duplicate suppression alone is insufficient; packets must also be routed to the correct backend. FeBEx performs tenant steering using Longest Prefix Match (LPM) over \texttt{dev\_addr}. The control plane assigns each tenant a contiguous address prefix and installs the corresponding forwarding entries into the switch. On ingress, the switch matches the packet's \texttt{dev\_addr} against these prefixes, selects the egress port for the appropriate LNS backend, and rewrites the destination Ethernet address before forwarding. This design is simple, scalable, and avoids maintaining per-device forwarding state in the switch.
+
+\fakepar{Attribution and Receipt Cloning}
+A key requirement in Helium-style deployments is that duplicate suppression must not destroy attribution information. Although only one packet copy should continue toward the backend, the system must still preserve information about which gateway legitimately delivered the first valid copy. FeBEx supports this through ingress-to-egress cloning. When a packet is identified as the first valid copy of a logical uplink, the switch not only forwards it to the selected tenant backend but also clones it to a cloud endpoint. The cloned packet retains the gateway identifier, enabling downstream Proof-of-Coverage-related accounting and auditing. In our implementation, this is realized using a P4 clone action with a controller-configured clone session.
+
+\fakepar{Control Plane Responsibilities}
+The FeBEx control plane is intentionally lightweight. Its role is not to process packets directly, but to provide the data plane with the configuration needed for correct operation. Specifically, the controller installs LPM entries for tenant steering, configures the clone session used for receipt mirroring, initializes and updates deduplication-related state, and periodically rotates the epoch value used for entry expiry. This separation keeps the per-packet logic inside the switch fast and simple, while allowing reconfiguration and policy updates at runtime.
+
+\fakepar{Design for Controlled Comparison}
+To measure the effect of in-network deduplication, FeBEx also supports a routing-only baseline mode in which duplicate suppression is disabled and all packets are forwarded. This mode is controlled through a small register-based toggle in the P4 program. When disabled, the switch still performs tenant-aware routing and cloning, but no packets are suppressed. This allows direct A/B comparison between conventional forwarding and FeBEx-style in-network deduplication under the same topology and traffic conditions.
+
+
+
+% \subsection{High-Level Architecture}
+
+% FeBEx is positioned as a P4-programmable aggregation switch between IoT gateways and cloud backends. The system comprises three components:
+
+% \begin{enumerate}
+%     \item \textbf{Data plane}: A P4 pipeline running on BMv2 (v1model) that performs three functions:
+%     \begin{itemize}
+%         \item Tenant steering: Route packets to the correct LNS based on DevAddr prefixes.
+%         \item In-network deduplication: Suppress redundant copies using register-based state.
+%         \item Receipt mirroring: Clone first-forwarded packets to a Helium Cloud endpoint for PoC verification.
+%     \end{itemize}
+%     \item \textbf{Control plane}: A Python controller (using finsy and P4Runtime) that:
+%     \begin{itemize}
+%         \item Installs LPM forwarding entries for each tenant.
+%         \item Configures deduplication state (enable/disable, register size).
+%         \item Rotates epochs to expire old entries.
+%         \item Configures clone sessions.
+%     \end{itemize}
+%     \item \textbf{Evaluation framework}: Mininet topology, traffic generators, and metrics collectors for experiments.
+% \end{enumerate}
+
+% \subsection{Network Topology}
+
+% The FeBEx deployment assumes a star topology with a single aggregation point:
+
+% \[
+% \text{Gateways} \, (1..K) \longrightarrow \text{FeBEx Switch} \longrightarrow \text{LNS Tenants} \, (1..M) \text{ + Cloud}
+% \]
+
+% In our Mininet evaluation:
+% \begin{itemize}
+%     \item $K$ gateway hosts (gateways) generate and send packets.
+%     \item 1 BMv2 switch (FeBEx) forwards or suppresses packets.
+%     \item $M$ LNS hosts (tenant backends) receive forwarded packets.
+%     \item 1 cloud host receives cloned receipts.
+% \end{itemize}
+
+% Gateway hosts are connected to switch ports $1 \ldots K$. LNS hosts are connected to ports $K+1 \ldots K+M$. The cloud host is connected to port $K+M+1$.
+
+% \subsection{Packet Format}
+
+% LoRaWAN packets are typically complex, with multiple header layers. For this evaluation, we use a simplified custom \textit{FeBEx metadata header} that captures the essential fields needed for deduplication and tenant steering:
+
+% \begin{verbatim}
+% Ethernet | IPv4 | UDP (port 5555) | FeBEx Meta | Payload
+%                                     |-- 12 bytes --|
+% \end{verbatim}
+
+% FeBEx metadata structure (12 bytes, network byte order):
+
+% \begin{enumerate}
+%     \item \textbf{dev\_addr} (4 bytes): LoRaWAN device address, used for tenant steering and deduplication key.
+%     \item \textbf{fcnt} (4 bytes): Frame counter, monotonically increasing per device, used for deduplication.
+%     \item \textbf{gw\_id} (2 bytes): Gateway identifier (1-based), used for PoC attribution.
+%     \item \textbf{flags} (1 byte): Reserved.
+%     \item \textbf{padding} (1 byte): Reserved.
+% \end{enumerate}
+
+% The tuple (dev\_addr, fcnt) uniquely identifies a logical uplink. The gw\_id identifies the gateway that forwarded this copy.
+
+% \subsection{Deduplication Algorithm (Figure~\ref{fig:dedup-algo})}
+
+% FeBEx uses a two-level hash approach: (1) an index hash selects a register slot, (2) a verification key disambiguates collisions, (3) an epoch timestamp enables expiry.
+
+% \begin{figure}[t]
+% \centering
+% \fbox{\parbox{0.9\linewidth}{
+% \textbf{Deduplication Flowchart (high-level):}\\[1mm]
+% Input tuple $(dev\_addr, fcnt)$
+% $\rightarrow$
+% Compute index hash and verification key\\
+% $\rightarrow$
+% Read stored $(key, epoch)$ at selected slot\\
+% $\rightarrow$
+% Compare with current epoch and computed key\\[1mm]
+% \hspace*{2mm}\textit{Match} $\rightarrow$ suppress as duplicate\\
+% \hspace*{2mm}\textit{Mismatch} $\rightarrow$ update slot and forward
+% }}
+% \caption{Deduplication algorithm: two-level hashing with epoch-based expiry.}
+% \label{fig:dedup-algo}
+% \end{figure}
+
+% \textbf{Key properties}:
+% \begin{itemize}
+%     \item \textit{Correctness}: Unique packets (different dev\_addr or fcnt) always forward; collisions disambiguated by 32-bit key.
+%     \item \textit{Efficiency}: Only 48 bits (32-bit key + 16-bit epoch) stored per register slot.
+%     \item \textit{Expiry}: Epoch rotation (every 5-10 sec) invalidates old entries without explicit deletion.
+% \end{itemize}
+
+% \subsection{Tenant Steering}
+
+% Packets are routed based on DevAddr using Longest Prefix Match (LPM). The controller allocates each tenant $m$ a contiguous prefix range:
+
+% \[
+% \text{prefix}(m) = m \ll (32 - \lceil \log_2(M) \rceil)
+% \]
+
+% For $M=4$ tenants, this allocates the top 2 bits of DevAddr to tenant identity. The switch matches the DevAddr, sets the egress port (LNS port for that tenant), and rewrites the Ethernet destination MAC before forwarding. This approach is simple, flexible, and requires no per-device state.
+
+% \subsection{Receipt Cloning}
+
+% To maintain Proof-of-Coverage accuracy, FeBEx uses P4 cloning (I2E) to mirror the first-forwarded copy of each unique uplink to a Helium Cloud endpoint. The gw\_id field in the cloned packet identifies which gateway originally heard the uplink, enabling accurate payment attribution.
+
+% The clone action is invoked in ingress: \texttt{clone(CloneType.I2E, 100)}, with session 100 configured at startup to mirror to the cloud port.
+
+% \subsection{A/B Comparison: Dedup ON vs. OFF}
+
+% To measure the impact of deduplication, the P4 program supports a toggle:
+
+% \begin{verbatim}
+% register<bit<1>>(1) dedup_enabled;
+% \end{verbatim}
+
+% The controller can disable deduplication by writing 0 to this register, putting the switch in a \textit{routing-only} baseline mode where all packets are forwarded (no suppression). This enables A/B comparison in experiments.

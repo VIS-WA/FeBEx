@@ -1,80 +1,51 @@
 \section{Implementation}
 \label{sec:implementation}
 
-This section summarizes the FeBEx implementation at a high level, focusing on packet-processing flow rather than code-level details.
+This section summarizes the FeBEx implementation at a high level, focusing on how the design is realized in the prototype rather than on code-level details. FeBEx is implemented using three main components. First, the \textit{P4 data plane}, running on BMv2, parses the FeBEx metadata header and performs tenant steering, duplicate suppression, and receipt cloning. Second, a \textit{P4Runtime control plane}, implemented in Python using Finsy, installs tenant forwarding entries, configures clone sessions, and rotates the epoch value used for state expiry. Third, an experiment harness, built using Mininet and Scapy, generates traffic, captures outputs, and computes the metrics used in evaluation.
 
-\subsection{Components}
+\fakepar{Packet and Traffic Path}
+Each gateway sends UDP packets carrying FeBEx metadata of the form $(\texttt{dev\_addr}, \texttt{fcnt}, \texttt{gw\_id})$. On arrival at the switch, the packet is parsed, mapped to a tenant backend using \texttt{dev\_addr}, checked against deduplication state, and either forwarded or suppressed. For each unique logical uplink, FeBEx forwards exactly one copy to the correct tenant backend and mirrors that first-forwarded copy to the cloud path for attribution. Subsequent duplicates of the same logical uplink are dropped in the switch.
 
-FeBEx is implemented with three components:
-\begin{itemize}
-    \item \textbf{P4 data plane} (BMv2, v1model): parses FeBEx metadata, performs tenant steering, deduplication, and receipt cloning.
-    \item \textbf{P4Runtime controller} (Python + finsy): installs LPM tenant rules, configures clone session, and rotates epochs.
-    \item \textbf{Experiment harness} (Mininet + Scapy): generates traffic, captures outputs, and computes metrics.
-\end{itemize}
+\fakepar{Switch Pipeline Flow}
+The switch ingress pipeline follows a simple sequence of operations, as illustrated in Fig.~\ref{fig:impl-switch-flow}. The parser first extracts Ethernet, IPv4, UDP, and FeBEx metadata fields. The ingress pipeline then performs tenant steering using an LPM table over \texttt{dev\_addr}, producing the tenant-specific egress decision. Next, the switch executes the deduplication check by computing a hash index and verification key, reading the corresponding register state, and comparing the stored values against the current packet and epoch. If the packet is identified as a duplicate, it is dropped. Otherwise, the corresponding state is updated, the packet is forwarded to the tenant backend, and a clone is generated for receipt handling.
 
-\subsection{Switch Pipeline Flow}
-
-\begin{figure}[H]
+\begin{figure}[t]
 \centering
-\fbox{\parbox{0.94\linewidth}{
-\textbf{Switch Ingress Flow (high-level)}\\[1mm]
-\textit{Parse packet} (Ethernet/IPv4/UDP/FeBExMeta)\\
-$\downarrow$\\
-\textit{Tenant steering} (LPM on DevAddr $\rightarrow$ select tenant egress port)\\
-$\downarrow$\\
-\textit{Dedup check} (hash index + key, compare with register state + epoch)\\
-$\downarrow$\\
-\textbf{Duplicate?}\\
-No $\rightarrow$ update register, forward to tenant, clone receipt to cloud\\
-Yes $\rightarrow$ drop packet
-}}
-\caption{FeBEx switch pipeline at implementation level.}
+\resizebox{0.7\linewidth}{!}{%
+\begin{tikzpicture}[
+  block/.style={rectangle, rounded corners, draw, align=center, minimum height=8mm, minimum width=34mm},
+  decision/.style={diamond, draw, aspect=2, align=center, inner sep=1pt},
+  line/.style={-{Latex[length=2mm]}, thick},
+  node distance=8mm
+]
+\node[block] (parse) {Parse packet\\{\footnotesize Ethernet / IPv4 / UDP / FeBExMeta}};
+\node[block, below=of parse] (tenant) {Tenant steering\\{\footnotesize LPM on \texttt{dev\_addr}}};
+\node[block, below=of tenant] (dedup) {Dedup check\\{\footnotesize hash index + key + epoch}};
+\node[decision, below=10mm of dedup] (dup) {Duplicate?};
+
+\node[block, below left=12mm and 18mm of dup] (forward) {Update state\\Forward to tenant\\Clone receipt to cloud};
+\node[block, below right=12mm and 18mm of dup] (drop) {Drop packet};
+
+\draw[line] (parse) -- (tenant);
+\draw[line] (tenant) -- (dedup);
+\draw[line] (dedup) -- (dup);
+\draw[line] (dup) -- node[left,pos=0.45] {\footnotesize No} (forward);
+\draw[line] (dup) -- node[right,pos=0.45] {\footnotesize Yes} (drop);
+\end{tikzpicture}%
+}
+\caption{\emph{FeBEx switch ingress pipeline.} Each packet is parsed, mapped to the appropriate tenant backend, checked against deduplication state, and either forwarded with receipt cloning or dropped as a duplicate.}
 \label{fig:impl-switch-flow}
 \end{figure}
+\fakepar{Controller Operation}
+The controller is responsible for configuring the switch but does not participate in per-packet processing. At startup, it connects to the switch over P4Runtime, loads the compiled pipeline, installs tenant-specific LPM forwarding entries, initializes deduplication-related state, and configures the clone session used for receipt mirroring. During runtime, it periodically updates the global epoch register according to the chosen expiry interval. This design keeps the switch fast and self-contained while allowing runtime control over policy and state lifetime.
 
-\subsection{Controller Flow}
+\fakepar{Deduplication State Layout}
+FeBEx uses a compact register-based state design. The register array \texttt{dedup\_keys[index]} stores a 32-bit verification key for each occupied slot, while \texttt{dedup\_epochs[index]} stores the corresponding 16-bit epoch value. A separate singleton register, \texttt{current\_epoch[0]}, holds the epoch value currently enforced by the controller. Another singleton register, \texttt{dedup\_enabled[0]}, acts as a runtime toggle for enabling or disabling duplicate suppression during A/B comparisons. This compact layout avoids expensive per-device state while supporting simple and efficient lookup-and-update operations in the data plane.
 
-\begin{figure}[H]
-\centering
-\fbox{\parbox{0.94\linewidth}{
-\textbf{Controller Lifecycle (high-level)}\\[1mm]
-Connect via P4Runtime\\
-$\downarrow$\\
-Load P4 pipeline + install tenant LPM entries\\
-$\downarrow$\\
-Set dedup mode and register defaults\\
-$\downarrow$\\
-Configure clone session (session 100 $\rightarrow$ cloud port)\\
-$\downarrow$\\
-Run periodic epoch rotation thread (every configured interval)
-}}
-\caption{Controller behavior used in all experiments.}
-\label{fig:impl-controller-flow}
-\end{figure}
+\fakepar{Switch Variants for Boundary-Leakage Mitigation}
+To study the effect of epoch-boundary behavior and collision tradeoffs, we implement and compare three switch variants. \textit{V1} is the baseline design, which treats a packet as a duplicate only if the stored epoch exactly matches the current epoch; this makes it vulnerable to boundary leakage when repeated packets straddle an epoch transition. \textit{V2} extends the design with a sliding-window check over both the current and previous epoch, allowing cross-boundary duplicates to still be recognized and suppressed. \textit{V3} adopts a dual-register Bloom-style design to strengthen collision behavior and reduce false positives, though its boundary behavior remains similar to V1 unless combined with additional temporal logic.
 
-\subsection{Deduplication State Design}
-
-FeBEx keeps only compact state in registers:
-\begin{itemize}
-    \item \texttt{dedup\_keys[index]}: 32-bit verification key.
-    \item \texttt{dedup\_epochs[index]}: 16-bit epoch when slot was written.
-    \item \texttt{current\_epoch[0]}: controller-rotated epoch value.
-    \item \texttt{dedup\_enabled[0]}: runtime A/B toggle for ON/OFF comparisons.
-\end{itemize}
-
-This design avoids expensive per-device state while preserving line-rate-friendly lookup and update operations.
-
-\subsection{Switch Variants for Boundary-Leakage Mitigation}
-
-To study boundary effects and mitigation tradeoffs, we implement and compare three switch variants:
-
-\begin{itemize}
-    \item \textbf{V1 (baseline)}: single-epoch check using \texttt{stored\_epoch == current\_epoch}. This is vulnerable to boundary leakage when duplicates straddle an epoch rotation.
-    \item \textbf{V2 (sliding window)}: checks both current and previous epoch (logical two-epoch window), so cross-boundary duplicates are still recognized and suppressed.
-    \item \textbf{V3 (dual-register Bloom)}: uses a dual-register Bloom-style design to reduce hash-collision false positives (stronger collision behavior), but its boundary behavior remains similar to V1.
-\end{itemize}
-
-\begin{figure}[H]
+\begin{figure}[t]
 \centering
 \fbox{\parbox{0.96\linewidth}{
 \textbf{Boundary-Leakage Mitigation Across Variants}\\[1mm]
@@ -86,19 +57,12 @@ To study boundary effects and mitigation tradeoffs, we implement and compare thr
 \textbf{V3 (dual-register Bloom):} collision-focused design with stronger FP resistance \\
 \hspace*{7mm} improves collision behavior, but does not eliminate boundary leakage by itself
 }}
-\caption{Conceptual comparison of V1, V2 (sliding window), and V3 (dual-register Bloom).}
+\caption{\emph{Conceptual comparison of FeBEx switch variants.} V1 uses a single-epoch check, V2 extends duplicate detection across an epoch boundary, and V3 improves collision behavior through a dual-register Bloom-style design.}
 \label{fig:v123-boundary-mitigation}
 \end{figure}
 
-\subsection{Packet and Traffic Path}
+\fakepar{Implementation Choices}
+Several implementation choices keep the prototype simple while preserving the essential system behavior. FeBEx uses a two-hash approach, with one hash selecting the register index and the other acting as a verification key to reduce collision ambiguity. State expiry is implemented through epoch rotation rather than explicit deletion, which keeps the control plane lightweight. Tenant isolation is achieved through prefix-based LPM forwarding, avoiding per-device forwarding state. Finally, the switch performs clone-on-first-forward so that attribution is preserved even when redundant copies are suppressed.
 
-Each gateway sends UDP packets with FeBEx metadata: $(\texttt{dev\_addr},\texttt{fcnt},\texttt{gw\_id})$. The switch forwards exactly one copy of each unique uplink to the correct tenant backend and mirrors that first-forwarded copy to cloud for Proof-of-Coverage attribution.
-
-\subsection{Implementation Choices}
-
-\begin{itemize}
-    \item \textbf{Two-hash approach}: one hash for index, one for verification key to reduce collision ambiguity.
-    \item \textbf{Epoch expiry}: no explicit deletion; stale entries naturally age out when epoch changes.
-    \item \textbf{LPM tenant steering}: simple multi-tenant isolation without per-device forwarding entries.
-    \item \textbf{Clone-on-first-forward}: preserves attribution while still suppressing redundant backhaul packets.
-\end{itemize}
+% \fakepar{Implementation Summary}
+% The FeBEx prototype realizes the core design using standard P4 abstractions on BMv2 together with a lightweight Python control plane. The implementation preserves the essential semantics of federated LoRaWAN backhaul---tenant-specific forwarding, duplicate suppression, and attribution-aware cloning---while remaining simple enough to support controlled evaluation across multiple switch variants and deployment settings.

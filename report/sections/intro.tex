@@ -1,46 +1,66 @@
 \section{Introduction}
+Helium and other federated LoRaWAN deployments have emerged as an important networking model for large-scale IoT connectivity. In these systems, a large number of geographically distributed hotspots cooperatively receive uplink transmissions from end devices and forward them toward cloud services. This architecture improves reliability and coverage, since multiple hotspots may hear the same transmission even under weak-signal or partially obstructed conditions. However, it also introduces a major inefficiency: the same logical uplink may be forwarded multiple times through the backhaul before duplicate copies are removed at the backend.
 
-Helium and LoRaWAN networks have emerged as key infrastructure for low-power, wide-area connectivity in IoT deployments. However, the fundamental architecture of these networks creates a significant inefficiency: when a device broadcasts a single LoRa transmission, multiple geographically distributed hotspots may receive and independently forward the same packet to the cloud backend. This redundancy, while essential for reliability and network coverage, wastes precious backhaul bandwidth — a scarce and costly resource in network infrastructure.
+This backend-centric deduplication model wastes network resources precisely because duplicate suppression occurs too late. By the time the cloud identifies two packets as duplicates, each copy has already consumed access and aggregation bandwidth. In dense urban deployments, where a single uplink may be received by several hotspots, this behavior can significantly inflate backhaul traffic, increase network cost, and reduce effective aggregation capacity. In Helium-style deployments, the problem is particularly important because the backhaul is shared across independently deployed hotspots and must additionally support accounting mechanisms such as proof-of-coverage attribution.
 
-Consider a typical Helium network deployment where hotspots are distributed across a city. When an IoT device transmits, perhaps five different hotspots receive the signal. Each hotspot independently sends a complete UDP/IP copy of the packet through the backhaul to a cloud data center. The cloud then performs packet deduplication in software, discarding the redundant copies. This results in a 5$\times$ multiplication of backhaul traffic for a single logical uplink, directly translating to increased bandwidth costs, higher latency, and reduced effective network capacity.
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/Febex overall architecture.png}
+    \vspace{-4mm}
+    \caption{\emph{FeBEx architecture.} Single uplink transmission from an IoT device may be received by multiple Helium hotspots, which forward duplicate copies toward the network. FeBEx, deployed as a P4-programmable aggregation switch, suppresses duplicates in-network, forwards the first valid copy to the tenant backend.}
+    \vspace{-4mm}
+    \label{fig:arch}
+\end{figure}
+\fakepar{Design overview} FeBEx addresses this inefficiency by moving deduplication into the network itself. Instead of allowing all copies of an uplink packet to traverse the backhaul and be filtered only at the backend, FeBEx performs duplicate suppression directly at a P4-programmable aggregation switch as shown in Figure~\ref{fig:arch}. This architectural shift allows the first valid copy of a packet to be forwarded immediately, while later duplicates are suppressed before they consume downstream bandwidth. At the same time, the switch must preserve two practical properties required in federated deployments: correct steering of packets to tenant-specific backends, and accurate attribution of the forwarded uplink.
 
-The conventional approach handles this duplication at the cloud tier --- a software post-processing step after packets have already consumed backhaul resources. FeBEx (Filtering in-network for Backhaul experiments) proposes a fundamental architectural shift: move deduplication into the network itself, specifically into a P4-programmable switch positioned as an aggregation point between hotspots and cloud backends.
+Realizing this functionality in the data plane is not straightforward. The switch must identify duplicates using bounded state, tolerate realistic hash collisions, expire old entries without unbounded growth, and avoid falsely suppressing distinct packets. It must also support multi-tenant forwarding policies while preserving observability of the first forwarded copy for Proof-of-Coverage workflows. FeBEx addresses these requirements through a register-based deduplication pipeline with epoch-driven expiry, longest-prefix-match tenant steering, and packet cloning for attribution.
 
-\subsection{Motivation and Problem Statement}
+We implement FeBEx in P4-16 on BMv2 using a P4Runtime control plane and evaluate it on a Mininet-based testbed. Our evaluation studies duplicate suppression correctness, bandwidth savings, state sizing, epoch sensitivity, scalability across different deployment sizes, and multi-tenant isolation. Across the evaluated scenarios, FeBEx reduces redundant backhaul traffic by 50--90\% while preserving correct delivery behavior and accurate accounting semantics. We make the following contributions:
+\begin{itemize}
+    \item We design and implement FeBEx, a P4-based in-network deduplication mechanism for federated LoRaWAN backhaul aggregation.
+    \item We show that FeBEx suppresses redundant uplink copies before egress, substantially reducing backhaul traffic while preserving correct packet delivery.
+    \item We characterize the impact of register size, epoch interval, and network scale, and derive practical guidelines for provisioning deduplication state.
+    \item We demonstrate that FeBEx preserves multi-tenant traffic isolation and supports attribution alongside duplicate suppression.
+\end{itemize}
 
-The key insight is that deduplication can be solved efficiently in-network, at the edge where the switch can observe all incoming copies simultaneously. By implementing deduplication as a stateful forwarding action in a P4 programmable data plane, FeBEx achieves three critical benefits:
 
-\begin{enumerate}
-    \item \textbf{Backhaul bandwidth savings}: Duplicate packets are suppressed before egress, reducing backhaul traffic by 50-90\% depending on the degree of duplication.
-    \item \textbf{Latency reduction}: The first copy reaches the backend immediately, without waiting for software-based cloud deduplication.
-    \item \textbf{Payment accuracy}: A P4 clone session mirrors the first-forwarded packet to a separate Helium Cloud endpoint, enabling precise Proof-of-Coverage payments to the hotspot that legitimately delivered the uplink.
-\end{enumerate}
+% The conventional approach handles this duplication at the cloud tier --- a software post-processing step after packets have already consumed backhaul resources. FeBEx (Filtering in-network for Backhaul experiments) proposes a fundamental architectural shift: move deduplication into the network itself, specifically into a P4-programmable switch positioned as an aggregation point between hotspots and cloud backends.
 
-\subsection{Research Questions}
+% \subsection{Motivation and Problem Statement}
 
-This work addresses the following research questions:
+% The key insight is that deduplication can be solved efficiently in-network, at the edge where the switch can observe all incoming copies simultaneously. By implementing deduplication as a stateful forwarding action in a P4 programmable data plane, FeBEx achieves three critical benefits:
 
-\begin{enumerate}
-    \item \textbf{Correctness}: Can an in-network deduplication filter correctly suppress true duplicates without falsely suppressing unique packets, even under high-collision hash conditions?
-    \item \textbf{Efficiency}: How much backhaul bandwidth can in-network deduplication realistically save, and how does this scale with network topology and traffic patterns?
-    \item \textbf{State requirements}: How large must the deduplication state (register arrays) be to achieve acceptable loss rates across different deployment scales?
-    \item \textbf{Temporal sensitivity}: How sensitive is the deduplication mechanism to epoch rotation frequency, and is there a sweet spot that minimizes boundary leakage?
-    \item \textbf{Scalability}: Does the approach maintain effectiveness across city-scale deployments with hundreds of devices and dozens of hotspots?
-    \item \textbf{Multi-tenancy}: Can the P4 pipeline correctly handle multiple independent tenant networks through LPM-based traffic steering without cross-contamination?
-\end{enumerate}
+% \begin{enumerate}
+%     \item \textbf{Backhaul bandwidth savings}: Duplicate packets are suppressed before egress, reducing backhaul traffic by 50-90\% depending on the degree of duplication.
+%     \item \textbf{Latency reduction}: The first copy reaches the backend immediately, without waiting for software-based cloud deduplication.
+%     \item \textbf{Payment accuracy}: A P4 clone session mirrors the first-forwarded packet to a separate Helium Cloud endpoint, enabling precise Proof-of-Coverage payments to the hotspot that legitimately delivered the uplink.
+% \end{enumerate}
 
-\subsection{Contributions}
+% \subsection{Research Questions}
 
-This work presents:
+% This work addresses the following research questions:
 
-\begin{enumerate}
-    \item A complete P4-16 implementation of an in-network deduplication pipeline for LoRaWAN/Helium networks, running on BMv2 (v1model) with P4Runtime control plane.
-    \item An evaluation framework (Mininet-based) that systematically explores parameter space: duplicate factors, register sizes, epoch intervals, network scales, and multi-tenant configurations.
-    \item Seven comprehensive experiments (E1-E7) that validate correctness, measure realistic backhaul savings, and identify practical design parameters (e.g., register sizing, epoch interval tuning).
-    \item An interactive visualization dashboard that animates the deduplication process in real-time across four city-scale scenarios.
-    \item Empirical evidence that register-based deduplication with simple hash collision handling is viable for production-scale IoT network aggregation.
-\end{enumerate}
+% \begin{enumerate}
+%     \item \textbf{Correctness}: Can an in-network deduplication filter correctly suppress true duplicates without falsely suppressing unique packets, even under high-collision hash conditions?
+%     \item \textbf{Efficiency}: How much backhaul bandwidth can in-network deduplication realistically save, and how does this scale with network topology and traffic patterns?
+%     \item \textbf{State requirements}: How large must the deduplication state (register arrays) be to achieve acceptable loss rates across different deployment scales?
+%     \item \textbf{Temporal sensitivity}: How sensitive is the deduplication mechanism to epoch rotation frequency, and is there a sweet spot that minimizes boundary leakage?
+%     \item \textbf{Scalability}: Does the approach maintain effectiveness across city-scale deployments with hundreds of devices and dozens of hotspots?
+%     \item \textbf{Multi-tenancy}: Can the P4 pipeline correctly handle multiple independent tenant networks through LPM-based traffic steering without cross-contamination?
+% \end{enumerate}
 
-\subsection{Paper Organization}
+% \subsection{Contributions}
 
-The remainder of this paper is organized as follows. Section~\ref{sec:related} surveys related work in network deduplication, P4 programming, and IoT backhaul optimization. Section~\ref{sec:background} provides necessary background on LoRaWAN, Helium networks, and P4 programmable switches. Section~\ref{sec:design} describes the FeBEx system architecture, including the P4 data plane, the control plane, and the evaluation topology. Section~\ref{sec:implementation} details the implementation, including packet format, P4 pipeline structure, and controller logic. Section~\ref{sec:evaluation} describes our experimental methodology and the seven experiments. Section~\ref{sec:results} presents empirical results and analysis for each experiment. Section~\ref{sec:discussion} discusses implications, limitations, and future work. Finally, Section~\ref{sec:conclusion} concludes.
+% This work presents:
+
+% \begin{enumerate}
+%     \item A complete P4-16 implementation of an in-network deduplication pipeline for LoRaWAN/Helium networks, running on BMv2 (v1model) with P4Runtime control plane.
+%     \item An evaluation framework (Mininet-based) that systematically explores parameter space: duplicate factors, register sizes, epoch intervals, network scales, and multi-tenant configurations.
+%     \item Seven comprehensive experiments (E1-E7) that validate correctness, measure realistic backhaul savings, and identify practical design parameters (e.g., register sizing, epoch interval tuning).
+%     \item An interactive visualization dashboard that animates the deduplication process in real-time across four city-scale scenarios.
+%     \item Empirical evidence that register-based deduplication with simple hash collision handling is viable for production-scale IoT network aggregation.
+% \end{enumerate}
+
+% \subsection{Paper Organization}
+
+% The remainder of this paper is organized as follows. Section~\ref{sec:related} surveys related work in network deduplication, P4 programming, and IoT backhaul optimization. Section~\ref{sec:background} provides necessary background on LoRaWAN, Helium networks, and P4 programmable switches. Section~\ref{sec:design} describes the FeBEx system architecture, including the P4 data plane, the control plane, and the evaluation topology. Section~\ref{sec:implementation} details the implementation, including packet format, P4 pipeline structure, and controller logic. Section~\ref{sec:evaluation} describes our experimental methodology and the seven experiments. Section~\ref{sec:results} presents empirical results and analysis for each experiment. Section~\ref{sec:discussion} discusses implications, limitations, and future work. Finally, Section~\ref{sec:conclusion} concludes.

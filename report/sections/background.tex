@@ -1,156 +1,202 @@
-\section{Background}
-\label{sec:background}
+\section{Background and Related Work}
 
-This section provides necessary background on LoRaWAN networks, the Helium ecosystem, and P4 programmable switches.
+\fakepar{LoRaWAN for IoT Connectivity}
+LoRaWAN has emerged as a widely used low-power wide-area networking technology for Internet-of-Things (IoT) deployments that require long range, low energy consumption, and low infrastructure cost~\cite{lorawan_spec,lorawan_architecture}. In a typical LoRaWAN deployment, battery-powered end devices transmit uplink packets that may be received by multiple gateways within radio range. These gateways forward the packets over IP backhaul to a network server, which performs tasks such as packet deduplication, device management, and delivery to application backends~\cite{lorawan_spec,lorawan_backend,ttn_architecture}. This architecture improves reliability because successful reception does not depend on any single gateway. However, it also introduces redundancy by design: a single uplink may be forwarded multiple times through the backhaul before duplicate copies are removed at the backend~\cite{lorawan_spec,lorawan_backend}. Prior studies on LoRa and LoRaWAN scalability further show that dense reception and shared infrastructure can create significant capacity pressure as deployments grow~\cite{bor_lora_scale16,georgiou_lora_scale17}.
 
-\subsection{LoRaWAN and Helium Networks}
+\fakepar{Why Federated IoT Networks Matter}
+As IoT deployments scale across large geographic regions, a federated network model becomes increasingly attractive. Instead of relying on a single centrally deployed operator infrastructure, federated IoT networks allow many independently deployed gateways or access points to contribute connectivity into a shared service fabric. This model improves scalability, coverage, and deployment incentives, especially in environments where infrastructure density varies across neighborhoods or cities. At the same time, federation shifts some challenges from the wireless edge into the network core. Since independently deployed gateways may all forward traffic toward shared backend services, duplicate receptions are no longer merely a backend software issue; they also consume shared access and aggregation bandwidth. As a result, efficient backhaul handling becomes an important systems problem in federated IoT infrastructure~\cite{lorawan_architecture,helium_overview,helium_imc21,bor_lora_scale16,georgiou_lora_scale17}.
 
-\subsubsection{LoRaWAN Overview}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/heliumarch.png}
+    \vspace{-4mm}
+    \caption{\emph{Helium-style federated LoRaWAN architecture.} Battery-powered end devices transmit uplinks that are received by geographically distributed community hotspots. These hotspots encapsulate LoRa packets into IP traffic and forward them through backhaul links toward shared cloud services and application backends.}
+    \vspace{-4mm}
+    \label{fig:heliumarch}
+\end{figure}
 
-LoRaWAN is a Low Power Wide Area (LPWA) networking protocol designed for battery-operated devices over long distances (10-20+ km in rural areas). It operates in unlicensed ISM bands (e.g., 915 MHz in North America, 868 MHz in Europe) and is standardized by the LoRa Alliance.
+\fakepar{Helium as a Federated LoRaWAN Deployment}
+Helium is a prominent example of a federated LoRaWAN-style network, in which connectivity is provided not by a single centrally deployed operator infrastructure, but by many independently operated community hotspots~\cite{helium_overview,helium_website,helium_imc21}. As shown in Fig.~\ref{fig:heliumarch}, battery-powered end devices transmit LoRa uplinks that may be received by one or more nearby hotspots. Each hotspot acts as a gateway: it demodulates the wireless packet, encapsulates it into standard IP traffic, and forwards it over the backhaul towards cloud~\cite{lorawan_backend,ttn_architecture}. This federated architecture is attractive because it improves coverage and scalability while reducing the need for a single entity to deploy and maintain the entire access infrastructure.
 
-A typical LoRaWAN network consists of:
+However, the same architecture also creates a major inefficiency. Since LoRaWAN uplinks are broadcast in nature, the same device transmission may be heard by multiple hotspots within range~\cite{lorawan_spec,lorawan_architecture,bor_lora_scale16,georgiou_lora_scale17}. In current deployments, each hotspot independently forwards its received copy of the packet toward the backend, even though these copies correspond to the same logical uplink~\cite{lorawan_backend,helium_imc21}. As illustrated in Fig.~\ref{fig:redundancy}, the backend eventually performs deduplication and preserves correctness at the application layer, but by that point the redundant copies have already consumed backhaul bandwidth. This wastes aggregation capacity and becomes increasingly costly in dense deployments where multiple hotspots frequently hear the same transmission.
 
-\begin{enumerate}
-    \item \textbf{End devices (EDs)}: Battery-powered IoT sensors that transmit data at very low power, sacrificing bandwidth for range and energy efficiency.
-    \item \textbf{Gateways (hotspots)}: Receive LoRa signals from EDs and forward them to a Network Server (LNS) via IP backhaul.
-    \item \textbf{Network Server}: Processes uplinks (ED to cloud) and downlinks (cloud to ED), performs deduplication, and routes to application backends.
-\end{enumerate}
+Beyond simple delivery, Helium also imposes an additional requirement: attribution. Incentive and accounting mechanisms such as proof-of-coverage and data-transfer rewards depend on preserving information about hotspot participation in the network~\cite{helium_overview,helium_dataonly,helium_rewards,helium_imc21}. Therefore, an in-network deduplication mechanism for Helium must do more than suppress redundant traffic; it must also preserve the attribution semantics required for rewards, auditing, and tenant-specific backend processing.
 
-Key characteristics:
-\begin{itemize}
-    \item \textit{Broadcast nature}: A single ED transmission is received by \textit{all} gateways in range (typically 3-10 gateways in urban areas, 1-3 in rural areas).
-    \item \textit{Redundancy by design}: Multiple copies per uplink ensure reliability; loss of a single gateway doesn't break the link.
-    \item \textit{Backhaul inefficiency}: This redundancy must traverse the backhaul network. In a city with 100 gateways and 1,000 active devices, a typical device might be heard by 4 gateways, generating 4,000 redundant backhaul packets per 1,000 logical uplinks.
-\end{itemize}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/redundancy.png}
+    \vspace{-4mm}
+    \caption{\emph{Redundant uplink forwarding.} A single device transmission may be received by multiple Helium hotspots, which independently forward duplicate copies toward the backend. While backend deduplication preserves correctness, redundant copies still consume backhaul bandwidth before being discarded.}
+    \vspace{-4mm}
+    \label{fig:redundancy}
+\end{figure}
 
-\subsubsection{Helium Network}
+\fakepar{Deduplication and In-Network Processing}
+Packet deduplication is commonly performed at the backend in LoRaWAN-style systems, where multiple gateway copies of the same uplink are forwarded to a centralized service and filtered in software. This approach is simple and flexible, but it removes duplicates only after they have already consumed backhaul bandwidth and processing resources. More broadly, intermediate duplicate suppression and in-network aggregation have been explored in wireless sensor networks and edge systems to reduce communication overhead and improve efficiency~\cite{tada}. Closely related to our setting, prior work has also explored reducing duplicate LoRaWAN gateway forwarding through coding-aware forwarding strategies~\cite{alawami_lorawan_forwarding22}. However, many such approaches operate at different layers, assume more homogeneous network stacks, or do not address the constraints of shared federated IoT backhaul. In contrast, FeBEx moves duplicate suppression earlier into the network and targets Helium-style LoRaWAN deployments, where duplicate filtering must coexist with tenant-aware forwarding and hotspot attribution~\cite{tada,alawami_lorawan_forwarding22}.
 
-Helium is a community-run network that incentivizes hotspot operators to deploy gateways by rewarding them with HNT cryptocurrency. Rewards are proportional to \textit{Proof-of-Coverage (PoC)} --- a mechanism by which a gateway's genuine coverage contribution is verified.
+\fakepar{P4 and Programmable Data Planes}
+P4 enables custom packet-processing logic to be implemented directly in programmable switch data planes~\cite{p4}. Prior work has used P4 to support stateful network functions such as in-band telemetry~\cite{int}, load balancing~\cite{conga}, and in-network aggregation~\cite{netcache}. More recent work has further shown that programmable switches can support richer in-network computation primitives beyond conventional forwarding~\cite{chen_p4com21}. Together, these systems demonstrate that programmable switches can maintain bounded state, perform packet cloning, and execute application-specific forwarding decisions at line rate. FeBEx builds on the same general capabilities, but applies them to a different problem: duplicate suppression in federated IoT backhaul. In particular, it combines register-based state, match-action forwarding, and cloning to jointly support duplicate filtering, tenant steering, and proof-of-coverage-aware attribution.
 
-In Helium's PoC model, a gateway earns rewards based on:
-\begin{enumerate}
-    \item \textit{Data transfer}: Rewarded per packet successfully forwarded to the LNS.
-    \item \textit{Witness attestation}: Other gateways witness and attest to a gateway's coverage beacon, confirming its geographic presence.
-\end{enumerate}
+\fakepar{Hash-Based Filtering}
+Compact duplicate detection is often implemented using hash tables or Bloom-filter-like structures~\cite{hashtables,bloomfilters}. Storing full packet contents or performing exact-match lookup is typically too expensive for switch memory, making bounded-state hashing a more suitable approach in programmable data planes. FeBEx adopts a two-level hash design: one hash selects the register index, while a second hash serves as a verification key to reduce false matches caused by collisions~\cite{hashtables}. Compared to probabilistic filters such as Bloom filters~\cite{bloomfilters}, this design is simpler to express in P4 and aligns naturally with deterministic register lookups. The tradeoff is that correctness depends on suitable provisioning of register capacity and expiry intervals, which FeBEx explicitly evaluates.
 
-Accurate attribution is critical: if the PoC mechanism cannot determine which gateway originally heard a packet, reward distribution becomes ambiguous. FeBEx preserves this attribution through clone sessions (see Section~\ref{sec:design}).
+\fakepar{IoT Backhaul and Edge Network Services}
+Prior work on programmable switches has increasingly explored stateful edge services that move functionality from servers or middleboxes into the forwarding path. Examples include telemetry~\cite{int}, switch-assisted coordination~\cite{silkroad}, load-aware forwarding~\cite{conga}, and more general in-network computation~\cite{chen_p4com21}. At the same time, LoRaWAN and Helium-style infrastructures face practical backhaul challenges including redundant forwarding, bandwidth cost, and the need for accurate attribution in incentivized deployments~\cite{helium_imc21}. FeBEx sits at the intersection of these directions: it treats duplicate suppression not as a backend-only software task, but as an in-network edge service implemented in the data plane.
 
-\subsection{P4 Programmable Switches}
+\fakepar{Positioning of FeBEx}
+FeBEx is distinguished by the combination of four properties. First, it is motivated by Helium-style federated LoRaWAN deployments rather than generic packet filtering~\cite{helium_imc21}. Second, it embeds duplicate suppression directly in a programmable forwarding pipeline instead of relying on separate middleboxes or cloud-side processing. Third, it operates under bounded switch state using a compact register-based design with epoch-based expiry and hash-based verification~\cite{hashtables,bloomfilters}. Finally, it preserves practical deployment requirements beyond correctness alone, including multi-tenant traffic steering and attribution-aware packet cloning. Together, these aspects position FeBEx at the intersection of backhaul optimization, programmable data-plane systems, and compact in-network duplicate filtering.
+% \label{sec:background}
 
-\subsubsection{P4 Language and Execution Model}
+% This section provides necessary background on LoRaWAN networks, the Helium ecosystem, and P4 programmable switches.
 
-P4 (Programming Protocol-independent Packet Processing) is a domain-specific language that allows programmers to define custom packet processing logic that runs in switch data planes. A P4 program specifies:
+% \subsection{LoRaWAN and Helium Networks}
 
-\begin{enumerate}
-    \item \textbf{Headers}: Custom packet headers and metadata.
-    \item \textbf{Parser}: State machine that extracts headers from raw packets.
-    \item \textbf{Ingress pipeline}: Match-action tables and stateful operations on matched packets.
-    \item \textbf{Egress pipeline}: Final packet modification and forwarding decisions.
-    \item \textbf{Deparser}: Reconstructs the packet for transmission.
-\end{enumerate}
+% \subsubsection{LoRaWAN Overview}
 
-Execution follows a strict deterministic model: each packet is processed by the parser, then independently by the ingress pipeline, egress pipeline, and deparser. Modern P4 switches support both stateless operations (standard forwarding, header rewriting) and stateful operations (register reads/writes, packet mirroring, recirculation).
+% LoRaWAN is a Low Power Wide Area (LPWA) networking protocol designed for battery-operated devices over long distances (10-20+ km in rural areas). It operates in unlicensed ISM bands (e.g., 915 MHz in North America, 868 MHz in Europe) and is standardized by the LoRa Alliance.
 
-\subsubsection{BMv2 and v1model}
+% A typical LoRaWAN network consists of:
 
-BMv2 (Behavioral Model v2) is a software switch implementation used for development and testing. It implements the \textit{v1model} architecture, which is one of several P4 target architectures.
+% \begin{enumerate}
+%     \item \textbf{End devices (EDs)}: Battery-powered IoT sensors that transmit data at very low power, sacrificing bandwidth for range and energy efficiency.
+%     \item \textbf{Gateways (hotspots)}: Receive LoRa signals from EDs and forward them to a Network Server (LNS) via IP backhaul.
+%     \item \textbf{Network Server}: Processes uplinks (ED to cloud) and downlinks (cloud to ED), performs deduplication, and routes to application backends.
+% \end{enumerate}
 
-v1model provides:
+% Key characteristics:
+% \begin{itemize}
+%     \item \textit{Broadcast nature}: A single ED transmission is received by \textit{all} gateways in range (typically 3-10 gateways in urban areas, 1-3 in rural areas).
+%     \item \textit{Redundancy by design}: Multiple copies per uplink ensure reliability; loss of a single gateway doesn't break the link.
+%     \item \textit{Backhaul inefficiency}: This redundancy must traverse the backhaul network. In a city with 100 gateways and 1,000 active devices, a typical device might be heard by 4 gateways, generating 4,000 redundant backhaul packets per 1,000 logical uplinks.
+% \end{itemize}
 
-\begin{enumerate}
-    \item \textbf{Packet I/O}: Standard Linux interfaces (TAP devices or pcap files).
-    \item \textbf{Match-action tables}: Single or cascaded LPM, exact match, ternary match.
-    \item \textbf{Registers}: Arrays indexed by packet-derived values, supporting atomic read-modify-write.
-    \item \textbf{Counters}: Automatic per-entry or per-packet statistics.
-    \item \textbf{Cloning}: I2E (ingress-to-egress) and E2E (egress-to-egress) cloning for packet replication.
-    \item \textbf{Recirculation}: A packet can be fed back to the ingress pipeline for multi-pass processing.
-\end{enumerate}
+% \subsubsection{Helium Network}
 
-\subsubsection{P4Runtime and Control Plane}
+% Helium is a community-run network that incentivizes hotspot operators to deploy gateways by rewarding them with HNT cryptocurrency. Rewards are proportional to \textit{Proof-of-Coverage (PoC)} --- a mechanism by which a gateway's genuine coverage contribution is verified.
 
-P4Runtime is a standardized API for controlling a P4 switch at runtime. It allows a control plane program (e.g., a Python controller) to:
+% In Helium's PoC model, a gateway earns rewards based on:
+% \begin{enumerate}
+%     \item \textit{Data transfer}: Rewarded per packet successfully forwarded to the LNS.
+%     \item \textit{Witness attestation}: Other gateways witness and attest to a gateway's coverage beacon, confirming its geographic presence.
+% \end{enumerate}
 
-\begin{enumerate}
-    \item Install and remove forwarding table entries.
-    \item Read and write packet counters and registers.
-    \item Configure cloning sessions and other switch parameters.
-    \item Receive notifications (e.g., when a switch becomes active).
-\end{enumerate}
+% Accurate attribution is critical: if the PoC mechanism cannot determine which gateway originally heard a packet, reward distribution becomes ambiguous. FeBEx preserves this attribution through clone sessions (see Section~\ref{sec:design}).
 
-Communication occurs over gRPC, a high-performance RPC framework. In our implementation, we use \textit{finsy}, a Python library that provides a Pythonic interface to P4Runtime.
+% \subsection{P4 Programmable Switches}
 
-\subsection{Deduplication Fundamentals}
+% \subsubsection{P4 Language and Execution Model}
 
-\subsubsection{Hash-Based Lookup}
+% P4 (Programming Protocol-independent Packet Processing) is a domain-specific language that allows programmers to define custom packet processing logic that runs in switch data planes. A P4 program specifies:
 
-A deduplication system must maintain a data structure that answers the query: \textit{``Have I seen this packet before?''} The most efficient approach in constrained hardware is hash-based lookup:
+% \begin{enumerate}
+%     \item \textbf{Headers}: Custom packet headers and metadata.
+%     \item \textbf{Parser}: State machine that extracts headers from raw packets.
+%     \item \textbf{Ingress pipeline}: Match-action tables and stateful operations on matched packets.
+%     \item \textbf{Egress pipeline}: Final packet modification and forwarding decisions.
+%     \item \textbf{Deparser}: Reconstructs the packet for transmission.
+% \end{enumerate}
 
-\begin{enumerate}
-    \item \textbf{Hash function}: Map a packet's \textit{identifying features} (e.g., DevAddr + FCnt) to an index $h$ in a register array.
-    \item \textbf{Verification key}: Store a secondary hash (the \textit{key}) in the register to disambiguate collisions.
-    \item \textbf{Epoch}: Store a timestamp (epoch) to invalidate old entries.
-\end{enumerate}
+% Execution follows a strict deterministic model: each packet is processed by the parser, then independently by the ingress pipeline, egress pipeline, and deparser. Modern P4 switches support both stateless operations (standard forwarding, header rewriting) and stateful operations (register reads/writes, packet mirroring, recirculation).
 
-Formally, the lookup algorithm is:
-\begin{enumerate}
-    \item Compute $h = \text{hash\_index}(\text{dev\_addr}, \text{fcnt})$ and $k = \text{hash\_key}(\text{dev\_addr}, \text{fcnt})$.
-    \item Read register $R[h]$ to get stored tuple $(k', \text{epoch}')$.
-    \item If $k == k'$ and $\text{epoch} == \text{epoch}'$, the packet is a \textit{duplicate}.
-    \item Otherwise, write $(k, \text{epoch})$ to $R[h]$ and forward the packet.
-\end{enumerate}
+% \subsubsection{BMv2 and v1model}
 
-\subsubsection{Hash Collisions and False Positives}
+% BMv2 (Behavioral Model v2) is a software switch implementation used for development and testing. It implements the \textit{v1model} architecture, which is one of several P4 target architectures.
 
-When two different packets hash to the same index, a \textit{collision} occurs. If the verification key is weak (e.g., truncated), two colliding packets might be mistaken for duplicates:
+% v1model provides:
 
-\begin{equation}
-P(\text{false positive}) = P(k == k' | h == h') \cdot P(h == h')
-\end{equation}
+% \begin{enumerate}
+%     \item \textbf{Packet I/O}: Standard Linux interfaces (TAP devices or pcap files).
+%     \item \textbf{Match-action tables}: Single or cascaded LPM, exact match, ternary match.
+%     \item \textbf{Registers}: Arrays indexed by packet-derived values, supporting atomic read-modify-write.
+%     \item \textbf{Counters}: Automatic per-entry or per-packet statistics.
+%     \item \textbf{Cloning}: I2E (ingress-to-egress) and E2E (egress-to-egress) cloning for packet replication.
+%     \item \textbf{Recirculation}: A packet can be fed back to the ingress pipeline for multi-pass processing.
+% \end{enumerate}
 
-For a good hash function mapping to $N$ buckets and $x$ unique packets:
-\begin{equation}
-P(\text{collision}) \approx 1 - e^{-x(x-1)/(2N)}
-\end{equation}
+% \subsubsection{P4Runtime and Control Plane}
 
-With 32-bit hashes (full CRC32), the collision probability is negligible ($\approx 1/(2^{32})$) for practical packet counts ($x < 10^6$). Increasing the register size $N$ similarly reduces collision probability.
+% P4Runtime is a standardized API for controlling a P4 switch at runtime. It allows a control plane program (e.g., a Python controller) to:
 
-\subsubsection{Epoch-Based Expiry}
+% \begin{enumerate}
+%     \item Install and remove forwarding table entries.
+%     \item Read and write packet counters and registers.
+%     \item Configure cloning sessions and other switch parameters.
+%     \item Receive notifications (e.g., when a switch becomes active).
+% \end{enumerate}
 
-Packets are time-dependent. An old packet should not suppress newer packets with the same (DevAddr, FCnt) pair after a sufficient time interval. FeBEx uses \textit{epochs} to expire entries:
+% Communication occurs over gRPC, a high-performance RPC framework. In our implementation, we use \textit{finsy}, a Python library that provides a Pythonic interface to P4Runtime.
 
-\begin{enumerate}
-    \item The controller periodically increments a global epoch counter (e.g., every 5 seconds).
-    \item When a packet is stored in a register, its epoch is recorded.
-    \item On lookup, if the stored epoch is stale (differs from the current epoch), the entry is treated as expired and overwritten.
-\end{enumerate}
+% \subsection{Deduplication Fundamentals}
 
-This is memory-efficient (no explicit deletion) and allows reuse of register slots over time.
+% \subsubsection{Hash-Based Lookup}
 
-\subsection{Evaluation Methodology}
+% A deduplication system must maintain a data structure that answers the query: \textit{``Have I seen this packet before?''} The most efficient approach in constrained hardware is hash-based lookup:
 
-\subsubsection{Mininet for Network Simulation}
+% \begin{enumerate}
+%     \item \textbf{Hash function}: Map a packet's \textit{identifying features} (e.g., DevAddr + FCnt) to an index $h$ in a register array.
+%     \item \textbf{Verification key}: Store a secondary hash (the \textit{key}) in the register to disambiguate collisions.
+%     \item \textbf{Epoch}: Store a timestamp (epoch) to invalidate old entries.
+% \end{enumerate}
 
-Mininet is a network emulator that creates a lightweight virtual network on a single Linux machine. Key features:
+% Formally, the lookup algorithm is:
+% \begin{enumerate}
+%     \item Compute $h = \text{hash\_index}(\text{dev\_addr}, \text{fcnt})$ and $k = \text{hash\_key}(\text{dev\_addr}, \text{fcnt})$.
+%     \item Read register $R[h]$ to get stored tuple $(k', \text{epoch}')$.
+%     \item If $k == k'$ and $\text{epoch} == \text{epoch}'$, the packet is a \textit{duplicate}.
+%     \item Otherwise, write $(k, \text{epoch})$ to $R[h]$ and forward the packet.
+% \end{enumerate}
 
-\begin{enumerate}
-    \item \textbf{Hosts}: Processes running in isolated network namespaces.
-    \item \textbf{Switches}: Optional software switches (OVS, BMv2).
-    \item \textbf{Links}: Emulated with configurable bandwidth, latency, and loss.
-    \item \textbf{Real applications}: Unmodified Linux applications (Python, iperf, etc.) run in Mininet hosts.
-\end{enumerate}
+% \subsubsection{Hash Collisions and False Positives}
 
-For FeBEx, we use Mininet to create a topology of gateways, LNS hosts, and a cloud host, with BMv2 as the central switch.
+% When two different packets hash to the same index, a \textit{collision} occurs. If the verification key is weak (e.g., truncated), two colliding packets might be mistaken for duplicates:
 
-\subsubsection{Coverage Matrices}
+% \begin{equation}
+% P(\text{false positive}) = P(k == k' | h == h') \cdot P(h == h')
+% \end{equation}
 
-In real LoRaWAN networks, which gateways hear which devices is determined by radio propagation, terrain, and antenna patterns. We abstract this as a \textit{coverage matrix}: an $N \times K$ binary matrix where entry $(i, j) = 1$ if device $i$ is heard by gateway $j$.
+% For a good hash function mapping to $N$ buckets and $x$ unique packets:
+% \begin{equation}
+% P(\text{collision}) \approx 1 - e^{-x(x-1)/(2N)}
+% \end{equation}
 
-Coverage matrices can be generated:
-\begin{enumerate}
-    \item \textbf{Probabilistic}: Each entry is 1 with probability $p$, modeled as a Poisson process with mean $\lambda$.
-    \item \textbf{Spatial}: Devices and gateways are placed in 2D space, coverage determined by distance.
-    \item \textbf{Explicit}: Manually specified (e.g., for small test cases).
-\end{enumerate}
+% With 32-bit hashes (full CRC32), the collision probability is negligible ($\approx 1/(2^{32})$) for practical packet counts ($x < 10^6$). Increasing the register size $N$ similarly reduces collision probability.
 
-The average coverage $\bar{d}$ (duplicate factor) is the mean number of gateways covering a device, directly related to backhaul savings.
+% \subsubsection{Epoch-Based Expiry}
+
+% Packets are time-dependent. An old packet should not suppress newer packets with the same (DevAddr, FCnt) pair after a sufficient time interval. FeBEx uses \textit{epochs} to expire entries:
+
+% \begin{enumerate}
+%     \item The controller periodically increments a global epoch counter (e.g., every 5 seconds).
+%     \item When a packet is stored in a register, its epoch is recorded.
+%     \item On lookup, if the stored epoch is stale (differs from the current epoch), the entry is treated as expired and overwritten.
+% \end{enumerate}
+
+% This is memory-efficient (no explicit deletion) and allows reuse of register slots over time.
+
+% \subsection{Evaluation Methodology}
+
+% \subsubsection{Mininet for Network Simulation}
+
+% Mininet is a network emulator that creates a lightweight virtual network on a single Linux machine. Key features:
+
+% \begin{enumerate}
+%     \item \textbf{Hosts}: Processes running in isolated network namespaces.
+%     \item \textbf{Switches}: Optional software switches (OVS, BMv2).
+%     \item \textbf{Links}: Emulated with configurable bandwidth, latency, and loss.
+%     \item \textbf{Real applications}: Unmodified Linux applications (Python, iperf, etc.) run in Mininet hosts.
+% \end{enumerate}
+
+% For FeBEx, we use Mininet to create a topology of gateways, LNS hosts, and a cloud host, with BMv2 as the central switch.
+
+% \subsubsection{Coverage Matrices}
+
+% In real LoRaWAN networks, which gateways hear which devices is determined by radio propagation, terrain, and antenna patterns. We abstract this as a \textit{coverage matrix}: an $N \times K$ binary matrix where entry $(i, j) = 1$ if device $i$ is heard by gateway $j$.
+
+% Coverage matrices can be generated:
+% \begin{enumerate}
+%     \item \textbf{Probabilistic}: Each entry is 1 with probability $p$, modeled as a Poisson process with mean $\lambda$.
+%     \item \textbf{Spatial}: Devices and gateways are placed in 2D space, coverage determined by distance.
+%     \item \textbf{Explicit}: Manually specified (e.g., for small test cases).
+% \end{enumerate}
+
+% The average coverage $\bar{d}$ (duplicate factor) is the mean number of gateways covering a device, directly related to backhaul savings.

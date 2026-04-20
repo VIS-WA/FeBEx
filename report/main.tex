@@ -1,59 +1,84 @@
-\documentclass[manuscript,nonacm, anonymous]{acmart}
-
+\documentclass[9pt]{article}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
+\usepackage[a4paper,margin=1in]{geometry}
 \usepackage{amsmath}
-\usepackage{float}
-\usepackage{url}
+\usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage{multirow}
-\usepackage{graphicx}
-
-\usepackage[]{hyperref}
 \usepackage{booktabs}
 \usepackage{tabularx}
-
+\usepackage{hyperref}
 \usepackage{balance}
-
-% enable page numbers
-\settopmatter{printfolios=true}
-
-\newcommand{\fakeparagraph}[1]{\vspace{.5mm}\noindent\textbf{#1.}}
+\usepackage[font=small,labelfont=bf]{caption}
+\newcommand{\fakeparagraph}[1]{\vspace{3mm}\noindent\textbf{#1.}}
 \newcommand{\fakepar}[1]{\fakeparagraph{#1}}
+\tikzset{
+  block/.style={
+    rectangle,
+    rounded corners,
+    draw,
+    align=center,
+    minimum height=8mm,
+    minimum width=28mm
+  },
+  decision/.style={
+    diamond,
+    draw,
+    aspect=2,
+    align=center,
+    inner sep=1pt
+  },
+  line/.style={
+    -{Latex[length=2mm]},
+    thick
+  }
+}
+\title{FeBEx: In-Network Deduplication for Federated LoRaWAN Backhaul Using P4 Programmable Switches}
+
+\author{
+Savitha Viswanadh Kandala\\
+\small{\texttt{
+viswanadh@u.nus.edu
+}}
+% School of Computing, National University of Singapore
+\and
+Rajashekar Reddy Chinthalapani\\
+\small{\texttt{
+rajashekar.c@u.nus.edu
+}}
+% School of Computing, National University of Singapore
+}
+
+\date{}
 
 \begin{document}
 
-\title{FeBEx: In-Network Deduplication for LoRaWAN Backhaul Using P4 Programmable Switches}
-
-\begin{abstract}
-LoRaWAN and Helium networks solve the last-mile connectivity problem for IoT devices, but their fundamental architecture creates a critical inefficiency: when a device broadcasts, multiple geographically distributed gateways independently forward the same packet through backhaul to cloud backends. This redundancy, essential for reliability, multiplies backhaul traffic and cost.
-
-We present FeBEx, a P4-programmable aggregation switch that moves deduplication from cloud backends to the network edge. FeBEx implements register-based deduplication with epoch-driven expiry, integrated with Longest-Prefix-Match tenant steering and packet cloning for Proof-of-Coverage attribution. Through comprehensive evaluation on Mininet-BMv2, we demonstrate that FeBEx achieves 50-90\% backhaul bandwidth savings while maintaining perfect delivery ratio (no false suppressions), 100\% multi-tenant isolation, and accurate payment attribution. We provide practical guidelines: register size $\geq 4N$, epoch intervals of 5-10 seconds, and validate effectiveness across city-scale deployments (50-500 devices, 5-50 gateways). This work demonstrates that edge-based deduplication is viable, effective, and ready for deployment on production P4 switches.
-\end{abstract}
-
 \maketitle
+\vspace{-8mm}
+\begin{abstract}
+Helium and similar federated LoRaWAN deployments solve the last-mile connectivity problem for IoT devices, but their architecture creates a fundamental inefficiency. When an end device transmits a single uplink packet, multiple geographically distributed hotspots may receive it and independently forward duplicate copies through the backhaul to cloud backends. While this redundancy improves reception reliability and coverage, it also inflates backhaul traffic, increases network cost, and wastes aggregation capacity.
 
+We present FeBEx, a P4-programmable aggregation switch that moves packet deduplication from cloud backends into the network backhaul. FeBEx combines register-based duplicate detection with epoch-driven expiry, longest-prefix-match tenant steering, and packet cloning to preserve proof-of-coverage attribution. We implement FeBEx on a Mininet-BMv2 testbed and evaluate it across deployments with 50--500 devices and 5--50 hotspots. Our results show that FeBEx reduces redundant backhaul traffic by 50--90\% while preserving correct packet delivery, maintaining 100\% multi-tenant isolation, and enabling accurate payment attribution. We further identify practical operating guidelines, including register sizing of at least $4N$ entries and epoch intervals of 5--10 seconds. These results demonstrate that in-network deduplication is a practical and effective approach for reducing redundant backhaul traffic in federated LoRaWAN infrastructures. Find the code and implementation: \url{https://github.com/VIS-WA/FeBEx}.
+\end{abstract}
+\begingroup
+\renewcommand{\thefootnote}{}
+\footnotetext{\noindent\textbf{AI Tool Declaration:} We used ChatGPT (GPT-5.4 Thinking) and Claude (Opus 4.6 Extended) to generate ideas, improve wording and paragraph structure, refine technical explanations, assist with coding, and help draft and revise parts of this report, including figure captions and section-level writeups. We are responsible for the content, accuracy, and quality of the submitted work.}
+\addtocounter{footnote}{-1}
+\endgroup
 \input{sections/intro}
-
-\input{sections/related}
-
+% \input{sections/related}
 \input{sections/background}
-
 \input{sections/design}
-
 \input{sections/implementation}
-
 \input{sections/evaluation}
-
-\input{sections/results}
-
-\input{sections/discussion}
-
+% \input{sections/discussion}
 \input{sections/conclusion}
 
 \appendix
 \input{sections/appendix}
 
-% use the ACM bibliography style
-\bibliographystyle{ACM-Reference-Format}
+\bibliographystyle{unsrt}
 \bibliography{references}
 
 \end{document}
