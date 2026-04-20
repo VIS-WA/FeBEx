@@ -3,6 +3,9 @@
 FeBEx is a CS6204 networking project that implements in-network filtering and backhaul experiment workflows on top of a P4/Mininet environment.  
 The repository includes the FeBEx P4 program, P4Runtime controller, topology scripts, experiment runners, and evaluation/plotting tools.
 
+![Dashboard preview](plots/dashboard.png)
+
+
 ## Repository structure
 
 ```text
